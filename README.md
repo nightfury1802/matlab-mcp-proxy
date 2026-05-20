@@ -69,7 +69,7 @@ Requests are never touched. The compressor is conservative — if no rule matche
 ### 1. Clone
 
 ```bash
-git clone https://github.com/soorajkrishnan/matlab-mcp-proxy.git
+git clone https://github.com/nightfury1802/matlab-mcp-proxy.git
 cd matlab-mcp-proxy
 ```
 
