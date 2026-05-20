@@ -1,0 +1,1318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MATLAB MCP Compression Proxy — Documentation</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #1a1a2e;
+    --sidebar:   #16213e;
+    --accent:    #00d4aa;
+    --code-bg:   #0f3460;
+    --text:      #e0e0f0;
+    --muted:     #8899bb;
+    --border:    #2a3a5e;
+    --warn:      #f4a261;
+    --danger:    #e76f51;
+    --sidebar-w: 240px;
+  }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, sans-serif;
+    font-size: 15px;
+    line-height: 1.7;
+  }
+
+  /* ── Sidebar ─────────────────────────────────────────── */
+  #sidebar {
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    width: var(--sidebar-w);
+    background: var(--sidebar);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 24px 0 40px;
+    z-index: 100;
+  }
+
+  #sidebar .logo {
+    padding: 0 20px 24px;
+    border-bottom: 1px solid var(--border);
+  }
+  #sidebar .logo h1 {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    line-height: 1.3;
+  }
+  #sidebar .logo p {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+
+  #sidebar nav { padding: 16px 0; }
+  #sidebar nav .section-label {
+    padding: 10px 20px 4px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+  }
+
+  #sidebar nav a {
+    display: block;
+    padding: 6px 20px;
+    font-size: 13px;
+    color: var(--text);
+    text-decoration: none;
+    border-left: 3px solid transparent;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+  }
+  #sidebar nav a:hover {
+    color: var(--accent);
+    background: rgba(0,212,170,0.06);
+    border-left-color: var(--accent);
+  }
+  #sidebar nav a.active {
+    color: var(--accent);
+    border-left-color: var(--accent);
+    background: rgba(0,212,170,0.1);
+  }
+
+  /* ── Main content ─────────────────────────────────────── */
+  #content {
+    margin-left: var(--sidebar-w);
+    padding: 48px 48px 80px;
+    max-width: 960px;
+  }
+
+  /* ── Typography ───────────────────────────────────────── */
+  h1, h2, h3, h4 { color: #ffffff; font-weight: 700; }
+
+  h1 { font-size: 2.2rem; margin-bottom: 12px; }
+  h2 { font-size: 1.5rem; margin: 48px 0 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 1.15rem; margin: 32px 0 10px; color: var(--accent); }
+  h4 { font-size: 1rem; margin: 20px 0 8px; color: var(--warn); }
+
+  p { margin-bottom: 14px; }
+
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  ul, ol { padding-left: 22px; margin-bottom: 14px; }
+  li { margin-bottom: 6px; }
+
+  /* ── Code ─────────────────────────────────────────────── */
+  code {
+    font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
+    font-size: 0.85em;
+    background: var(--code-bg);
+    color: #7dd3c8;
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 18px 20px;
+    overflow-x: auto;
+    margin: 12px 0 20px;
+    font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
+    font-size: 0.82em;
+    line-height: 1.55;
+    color: #c8e6f8;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    color: inherit;
+    font-size: inherit;
+  }
+
+  /* ── Tables ───────────────────────────────────────────── */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0 24px;
+    font-size: 0.88em;
+  }
+  th {
+    background: var(--code-bg);
+    color: var(--accent);
+    text-align: left;
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    font-weight: 600;
+    font-size: 0.82em;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  td {
+    padding: 9px 14px;
+    border: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tr:nth-child(even) td { background: rgba(255,255,255,0.03); }
+  tr:hover td { background: rgba(0,212,170,0.05); }
+
+  /* ── Callout boxes ────────────────────────────────────── */
+  .callout {
+    border-left: 4px solid var(--accent);
+    background: rgba(0,212,170,0.08);
+    padding: 14px 18px;
+    border-radius: 0 8px 8px 0;
+    margin: 16px 0;
+  }
+  .callout.warn {
+    border-left-color: var(--warn);
+    background: rgba(244,162,97,0.08);
+  }
+  .callout.danger {
+    border-left-color: var(--danger);
+    background: rgba(231,111,81,0.08);
+  }
+  .callout p:last-child { margin-bottom: 0; }
+
+  /* ── Stat cards ───────────────────────────────────────── */
+  .stats-row {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin: 20px 0;
+  }
+  .stat-card {
+    flex: 1;
+    min-width: 140px;
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px;
+    text-align: center;
+  }
+  .stat-card .value {
+    font-size: 2rem;
+    font-weight: 800;
+    color: var(--accent);
+    line-height: 1;
+  }
+  .stat-card .label {
+    font-size: 0.78em;
+    color: var(--muted);
+    margin-top: 6px;
+  }
+
+  /* ── Rule cards ───────────────────────────────────────── */
+  .rule-card {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+    margin: 16px 0;
+  }
+  .rule-card .rule-header {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+  .rule-id {
+    font-family: monospace;
+    font-size: 0.78em;
+    background: var(--accent);
+    color: #000;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .rule-name { font-weight: 700; color: #ffffff; }
+  .rule-reduction {
+    margin-left: auto;
+    font-size: 0.82em;
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .before-after {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-top: 10px;
+  }
+  .before-after > div { }
+  .before-after .label-ba {
+    font-size: 0.72em;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 4px;
+  }
+  .label-ba.before { color: var(--danger); }
+  .label-ba.after  { color: var(--accent); }
+  .before-after pre {
+    font-size: 0.76em;
+    padding: 10px 12px;
+    margin: 0;
+  }
+
+  /* ── Step list ────────────────────────────────────────── */
+  .steps { counter-reset: step; list-style: none; padding-left: 0; }
+  .steps li {
+    counter-increment: step;
+    position: relative;
+    padding-left: 48px;
+    margin-bottom: 20px;
+  }
+  .steps li::before {
+    content: counter(step);
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 30px;
+    height: 30px;
+    background: var(--accent);
+    color: #000;
+    border-radius: 50%;
+    font-weight: 800;
+    font-size: 0.85em;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+  }
+
+  /* ── JSON swap blocks ─────────────────────────────────── */
+  .swap-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin: 16px 0 24px;
+  }
+  .swap-block h4 { margin-top: 0; }
+
+  /* ── Responsive (narrow) ──────────────────────────────── */
+  @media (max-width: 800px) {
+    #sidebar { display: none; }
+    #content { margin-left: 0; padding: 24px 20px 60px; }
+    .before-after, .swap-row { grid-template-columns: 1fr; }
+  }
+
+  /* ── Section divider ──────────────────────────────────── */
+  .section { padding-top: 16px; }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════ SIDEBAR -->
+<aside id="sidebar">
+  <div class="logo">
+    <h1>MATLAB MCP<br>Compression Proxy</h1>
+    <p>Token reduction layer for Claude</p>
+  </div>
+  <nav>
+    <div class="section-label">Getting Started</div>
+    <a href="#overview">Overview</a>
+    <a href="#architecture">Architecture</a>
+    <a href="#installation">Installation</a>
+    <a href="#swap-guide">SWAP Guide</a>
+
+    <div class="section-label">Reference</div>
+    <a href="#rules">Rules Reference</a>
+    <a href="#test-scenarios">Test Scenarios</a>
+
+    <div class="section-label">Operations</div>
+    <a href="#troubleshooting">Troubleshooting</a>
+    <a href="#performance">Performance</a>
+    <a href="#critical-notes">⚠ Critical Notes</a>
+    <a href="#revert">Revert to Default</a>
+  </nav>
+</aside>
+
+<!-- ═══════════════════════════════════════════════════════ CONTENT -->
+<main id="content">
+
+<!-- ─────────────────────────────────────────────── OVERVIEW -->
+<section class="section" id="overview">
+  <h1>MATLAB MCP Compression Proxy</h1>
+  <p>A lightweight stdio proxy that sits between Claude Code and the MATLAB MCP server, intercepting tool responses and compressing them before they reach the LLM context window — reducing token consumption without changing any tool semantics.</p>
+
+  <div class="stats-row">
+    <div class="stat-card"><div class="value">48%</div><div class="label">Average token reduction</div></div>
+    <div class="stat-card"><div class="value">13</div><div class="label">Compression rules</div></div>
+    <div class="stat-card"><div class="value">0.065ms</div><div class="label">Median overhead</div></div>
+    <div class="stat-card"><div class="value">0</div><div class="label">Tool call changes needed</div></div>
+  </div>
+
+  <h3>Why it exists</h3>
+  <p>MATLAB MCP server responses are verbose by design — they include rich diagnostic output, full warning traces, aligned <code>whos</code> tables, long progress logs, and structured build output. This verbosity is useful when reading in a terminal but is expensive when consumed by an LLM.</p>
+  <p>The proxy applies 13 targeted compression rules to MATLAB tool responses. Each rule is reversible in principle (no information loss that Claude would act on), lossless for error messages, and always preserves the first and last values of numeric sequences so Claude can still reason about simulation results.</p>
+
+  <h3>What it is not</h3>
+  <ul>
+    <li>Not a summarizer — it does not use an LLM to paraphrase output.</li>
+    <li>Not a cache — every call goes through to MATLAB.</li>
+    <li>Not lossy for errors — R11 strips boilerplate text, never the error message itself.</li>
+    <li>Not required — <code>--bypass</code> disables all compression for full raw output.</li>
+  </ul>
+
+  <div class="callout">
+    <p><strong>48% average reduction</strong> measured across the 8 test scenarios in the test suite, covering whos output, build logs, DOE progress, test runner tables, stack traces, struct display, repeated warnings, and algebraic loop reports.</p>
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────────── ARCHITECTURE -->
+<section class="section" id="architecture">
+  <h2>Architecture</h2>
+
+  <p>Two proxy processes wrap the two MCP servers. Both share the same MATLAB session. The proxy is a pure pass-through on requests; on responses it applies 14 compression rules before returning to Claude.</p>
+
+<pre>
+Claude Code  (~/.claude.json)
+│
+├─── matlab proxy (python3 proxy.py)
+│         │  Content-Length framing (LSP-style JSON-RPC)
+│         ▼
+│    matlab-mcp-core-server --initialize-matlab-on-startup=true
+│         │  starts MATLAB eagerly at Claude launch (~15-20s)
+│         ▼
+│    ┌─────────────────────────────────────────────┐
+│    │             MATLAB R2025a                    │◄──── shared session
+│    │  evaluate_matlab_code / run_matlab_file      │      connector.securePort
+│    └─────────────────────────────────────────────┘
+│         ▲
+│    matlab-mcp-core-server --matlab-session-mode=existing
+│         │  polls for session, attaches within 30s window
+│         │  Content-Length framing
+└─── simulink proxy (python3 proxy.py)
+          + --extension-file=tools/tools.json
+            (model_edit / model_overview / model_read / model_test)
+
+RESPONSE path (both proxies):
+  upstream → proxy → compress(content[].text) → Claude
+  R01 deduplicate repeated warnings    [~59%]
+  R02 collapse deep stack traces       [~40%]
+  R03 compact whos tables              [~74%]
+  R04 truncate large arrays            [~85%]
+  R05 shorten Simulink block paths
+  R06 compress block lists             [~63%]
+  R07 collapse ### build output        [~56%]
+  R08 elide progress lines             [~79%]
+  R09 compact test results             [~62%]
+  R10 inline struct fields             [~32%]
+  R11 strip error boilerplate          [always]
+  R12 dedup Caused-By                  [~58%]
+  R13 compact init-cond lists
+  R14 shorten model_read block paths   [~36%]
+  overhead: 0.065ms median / 2.2ms worst-case
+
+REQUEST path (both proxies):
+  Claude → proxy → upstream UNCHANGED (never compressed)
+</pre>
+
+  <h3>Wire format: Content-Length framing</h3>
+  <p><code>matlab-mcp-core-server</code> uses LSP-style Content-Length framing, not newline-delimited JSON. The proxy's <code>_read_message()</code> auto-detects this: if the first line starts with <code>Content-Length:</code>, it drains all header lines then reads exactly N bytes. Otherwise it treats the line as newline-delimited JSON. Both formats are supported transparently.</p>
+
+  <h3>Session sharing</h3>
+  <p>The matlab server (new mode) writes <code>connector.securePort</code> to a temp directory when MATLAB starts. The simulink server (existing mode) reads this file and connects to that port. Both servers then use the same MATLAB Connector HTTP API — same workspace, same loaded models, same path.</p>
+</section>
+
+<!-- ─────────────────────────────────────────────── INSTALLATION -->
+<section class="section" id="installation">
+  <h2>Installation</h2>
+
+  <ol class="steps">
+    <li>
+      <strong>Clone or locate the proxy directory</strong>
+      <pre><code>ls /Users/soorajkrishnan/simscape-agent/matlab-mcp-proxy/
+# proxy.py  compressor.py  install.sh  tests/  docs/</code></pre>
+    </li>
+
+    <li>
+      <strong>Verify Python 3.9+</strong>
+      <pre><code>python3 --version
+# Python 3.11.x or newer recommended</code></pre>
+      <p>No third-party packages are required. The proxy uses only the Python standard library (<code>asyncio</code>, <code>json</code>, <code>re</code>, <code>sys</code>, <code>argparse</code>).</p>
+    </li>
+
+    <li>
+      <strong>Make the proxy executable</strong>
+      <pre><code>chmod +x /Users/soorajkrishnan/simscape-agent/matlab-mcp-proxy/proxy.py</code></pre>
+    </li>
+
+    <li>
+      <strong>Run install.sh (updates claude_desktop_config.json automatically)</strong>
+      <pre><code>cd /Users/soorajkrishnan/simscape-agent/matlab-mcp-proxy
+bash install.sh</code></pre>
+      <p><code>install.sh</code> patches <code>~/Library/Application Support/Claude/claude_desktop_config.json</code> to route the <code>matlab</code> MCP entry through the proxy. It saves a backup as <code>claude_desktop_config.json.bak</code>.</p>
+    </li>
+
+    <li>
+      <strong>Restart Claude Desktop</strong>
+      <pre><code>osascript -e 'quit app "Claude"'
+open -a Claude</code></pre>
+    </li>
+
+    <li>
+      <strong>Verify the proxy is active</strong>
+      <p>In Claude, run any MATLAB command. Check that repeated-warning deduplication is working:</p>
+      <pre><code>% In Claude: ask MATLAB to run a script that emits repeated warnings.
+% The response should show [×N] counts rather than full repeated blocks.</code></pre>
+    </li>
+
+    <li>
+      <strong>Run the test suite (optional but recommended)</strong>
+      <pre><code>cd /Users/soorajkrishnan/simscape-agent/matlab-mcp-proxy
+python3 -m pytest tests/ -v</code></pre>
+      <p>All 8 scenarios should pass in under 1 second (no MATLAB connection needed — the tests operate on the compressor in isolation).</p>
+    </li>
+  </ol>
+
+  <div class="callout warn">
+    <p><strong>After any update to proxy.py or compressor.py</strong>, restart Claude Desktop so the subprocess is re-launched with the new code.</p>
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────────── SWAP GUIDE -->
+<section class="section" id="swap-guide">
+  <h2>SWAP Guide</h2>
+
+  <p>This is the most important section for day-to-day operation. It shows exactly how to switch between proxy mode (compression active) and direct mode (raw MATLAB output).</p>
+
+  <div class="callout">
+    <p><strong>Config file:</strong> <code>~/.claude.json</code> (Claude Code CLI/VS Code extension). Edit this file, restart Claude Code. Done.</p>
+    <p style="margin-top:0.5em;color:var(--muted);font-size:0.9em">⚠️ <code>claude_desktop_config.json</code> is for the Claude Desktop <em>app</em> — editing it has no effect on Claude Code.</p>
+  </div>
+
+  <div class="swap-row">
+    <div class="swap-block">
+      <h4>WITH proxy — compression active</h4>
+      <pre><code>"matlab": {
+  "command": "python3",
+  "args": [
+    "/Users/soorajkrishnan/simscape-agent/matlab-mcp-proxy/proxy.py",
+    "--upstream", "/Users/soorajkrishnan/.local/bin/matlab-mcp-core-server",
+    "--initial-working-folder", "/Users/soorajkrishnan/simscape-agent/work",
+    "--matlab-root", "/Applications/MATLAB_R2025a.app",
+    "--initialize-matlab-on-startup=true"
+  ],
+  "env": {}, "type": "stdio"
+},
+"simulink": {
+  "command": "python3",
+  "args": [
+    "/Users/soorajkrishnan/simscape-agent/matlab-mcp-proxy/proxy.py",
+    "--upstream", "/Users/soorajkrishnan/.local/bin/matlab-mcp-core-server",
+    "--matlab-session-mode=existing",
+    "--extension-file=/Users/soorajkrishnan/simscape-agent/simulink-agentic-toolkit/tools/tools.json"
+  ],
+  "env": {}, "type": "stdio"
+}</code></pre>
+    </div>
+    <div class="swap-block">
+      <h4>WITHOUT proxy — direct connection</h4>
+      <pre><code>"matlab": {
+  "command": "/Users/soorajkrishnan/.local/bin/matlab-mcp-core-server",
+  "args": [
+    "--initial-working-folder", "/Users/soorajkrishnan/simscape-agent/work",
+    "--matlab-root", "/Applications/MATLAB_R2025a.app",
+    "--initialize-matlab-on-startup=true"
+  ],
+  "env": {}, "type": "stdio"
+},
+"simulink": {
+  "command": "/Users/soorajkrishnan/.local/bin/matlab-mcp-core-server",
+  "args": [
+    "--matlab-session-mode=existing",
+    "--extension-file=/Users/soorajkrishnan/simscape-agent/simulink-agentic-toolkit/tools/tools.json"
+  ],
+  "env": {}, "type": "stdio"
+}</code></pre>
+    </div>
+  </div>
+
+  <h3>Using --bypass mode</h3>
+  <p>Proxy stays in config but compression is disabled — useful to verify raw MATLAB output without a full revert:</p>
+  <pre><code>bash /Users/soorajkrishnan/simscape-agent/matlab-mcp-proxy/install.sh --bypass</code></pre>
+  <p>Or add <code>"--bypass"</code> to the proxy args manually. The proxy still launches and forwards all messages — it just skips the 14 compression rules.</p>
+
+  <h3>install.sh commands</h3>
+  <p>The <code>install.sh</code> script provides these modes:</p>
+  <pre><code># Install proxy (default — applies WITH proxy config)
+bash install.sh
+
+# Uninstall proxy (restore direct connection)
+bash install.sh --uninstall
+
+# Install with bypass mode (proxy running, compression off)
+bash install.sh --bypass
+
+# Show current config without modifying
+bash install.sh --status</code></pre>
+
+  <h3>When to use each mode</h3>
+  <table>
+    <thead>
+      <tr><th>Scenario</th><th>Recommended config</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Normal Claude Code usage</td><td>WITH proxy (default)</td></tr>
+      <tr><td>Debugging a rule that might be losing output</td><td>--bypass</td></tr>
+      <tr><td>Sharing a bug report about MATLAB output</td><td>WITHOUT proxy (direct)</td></tr>
+      <tr><td>Profiling raw MATLAB server performance</td><td>WITHOUT proxy (direct)</td></tr>
+      <tr><td>CI or automated test of proxy rules</td><td>python3 tests/ (no Claude)</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ─────────────────────────────────────────────── RULES REFERENCE -->
+<section class="section" id="rules">
+  <h2>Rules Reference</h2>
+  <p>All 13 rules are applied in order R01 → R13 on every tool response text. Rules are independent — each operates on the output of the previous rule.</p>
+
+  <!-- R01 -->
+  <div class="rule-card" id="rule-r01">
+    <div class="rule-header">
+      <span class="rule-id">R01</span>
+      <span class="rule-name">Deduplicate repeated warnings</span>
+      <span class="rule-reduction">~59% reduction</span>
+    </div>
+    <p>When the same warning line (including its stack trace) appears more than once in sequence, collapse all occurrences into a single instance annotated with a repeat count <code>[×N]</code>.</p>
+    <div class="before-after">
+      <div>
+        <div class="label-ba before">Before</div>
+        <pre>Warning: Matrix is singular to working precision.
+> In solve (line 10)
+Warning: Matrix is singular to working precision.
+> In solve (line 10)
+Warning: Matrix is singular to working precision.
+> In solve (line 10)
+Warning: Matrix is singular to working precision.
+> In solve (line 10)</pre>
+      </div>
+      <div>
+        <div class="label-ba after">After</div>
+        <pre>Warning: Matrix is singular to working precision.
+> In solve (line 10)  [×4]</pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- R02 -->
+  <div class="rule-card" id="rule-r02">
+    <div class="rule-header">
+      <span class="rule-id">R02</span>
+      <span class="rule-name">Collapse deep stack traces</span>
+      <span class="rule-reduction">~40% reduction</span>
+    </div>
+    <p>When a stack trace contains more than 5 frames, keeps the first 3 and last 1 frame and replaces the middle with <code>[... N frames ...]</code>. The outermost call site and the innermost origin are always preserved.</p>
+    <div class="before-after">
+      <div>
+        <div class="label-ba before">Before</div>
+        <pre>Error in myFunc (line 42)
+Error in callA (line 15)
+Error in callB (line 88)
+Error in callC (line 201)
+Error in callD (line 55)
+Error in callE (line 7)
+Error in runSim (line 3)</pre>
+      </div>
+      <div>
+        <div class="label-ba after">After</div>
+        <pre>Error in myFunc (line 42)
+Error in callA (line 15)
+Error in callB (line 88)
+[... 3 frames ...]
+Error in runSim (line 3)</pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- R03 -->
+  <div class="rule-card" id="rule-r03">
+    <div class="rule-header">
+      <span class="rule-id">R03</span>
+      <span class="rule-name">Compact whos tables</span>
+      <span class="rule-reduction">~74% reduction</span>
+    </div>
+    <p>Replaces the full column-aligned <code>whos</code> table (Name / Size / Bytes / Class / Attributes) with a single compact line listing each variable as <code>name[size,class]</code>. Attribute flags (global, persistent, complex) are dropped.</p>
+    <div class="before-after">
+      <div>
+        <div class="label-ba before">Before</div>
+        <pre>  Name        Size            Bytes  Class     Attributes
+
+  Flux_dq     2x1000         16000  double
+  Id          1x1                8  double
+  Iq          1x1                8  double
+  tout        1000x1          8000  double
+  omega       1x1                8  double
+  torque      1000x1          8000  double
+
+26 lines, aligned whitespace</pre>
+      </div>
+      <div>
+        <div class="label-ba after">After</div>
+        <pre>whos: Flux_dq[2x1000,dbl]  Id[1x1,dbl]  Iq[1x1,dbl]  tout[1000x1,dbl]  omega[1x1,dbl]  torque[1000x1,dbl]</pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- R04 -->
+  <div class="rule-card" id="rule-r04">
+    <div class="rule-header">
+      <span class="rule-id">R04</span>
+      <span class="rule-name">Truncate large numeric arrays</span>
+      <span class="rule-reduction">~85% reduction</span>
+    </div>
+    <p>When MATLAB echoes a numeric array with more than 20 rows in column-vector format, replaces the full listing with a one-line summary showing size, first value, and last value. This is the highest-impact rule for simulation output.</p>
+    <div class="before-after">
+      <div>
+        <div class="label-ba before">Before</div>
+        <pre>torque =
+
+         0
+    1.2300
+    2.4600
+    3.6900
+    ...
+  107.6300
+
+(977 more rows, each on its own line)</pre>
+      </div>
+      <div>
+        <div class="label-ba after">After</div>
+        <pre>torque = [1000x1: first=0, last=107.6300]</pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- R05 -->
+  <div class="rule-card" id="rule-r05">
+    <div class="rule-header">
+      <span class="rule-id">R05</span>
+      <span class="rule-name">Shorten Simulink block paths</span>
+      <span class="rule-reduction">variable</span>
+    </div>
+    <p>Long Simulink block paths such as <code>myModel/Subsystem1/ControlLayer/FOC/dAxis/PIController</code> are shortened by keeping only the model root and the last two path segments: <code>myModel/.../PIController</code>. Applied wherever a <code>/</code>-delimited path of 4 or more segments appears in the text.</p>
+    <div class="before-after">
+      <div>
+        <div class="label-ba before">Before</div>
+        <pre>Block path: test_PMSM_FEM_foc/DriveUnit/
+  ControlLayer/FOC/dAxis/PIController</pre>
+      </div>
+      <div>
+        <div class="label-ba after">After</div>
+        <pre>Block path: test_PMSM_FEM_foc/.../PIController</pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- R06 -->
+  <div class="rule-card" id="rule-r06">
+    <div class="rule-header">
+      <span class="rule-id">R06</span>
+      <span class="rule-name">Compress algebraic loop block lists</span>
+      <span class="rule-reduction">~63% reduction</span>
+    </div>
+    <p>Algebraic loop error messages list every block in the loop. When the list exceeds 4 blocks, the middle blocks are collapsed to a count. The first two and last block are always shown so the loop topology is preserved.</p>
+    <div class="before-after">
+      <div>
+        <div class="label-ba before">Before</div>
+        <pre>Algebraic loop involving the following blocks:
+  'myModel/Gain1'
+  'myModel/Sum1'
+  'myModel/Transfer Fcn'
+  'myModel/Lookup Table'
+  'myModel/Product'
+  'myModel/Unit Delay'
+  'myModel/Gain2'</pre>
+      </div>
+      <div>
+        <div class="label-ba after">After</div>
+        <pre>Algebraic loop involving the following blocks:
+  'myModel/Gain1'
+  'myModel/Sum1'
+  [... 4 blocks ...]
+  'myModel/Gain2'</pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- R07 -->
+  <div class="rule-card" id="rule-r07">
+    <div class="rule-header">
+      <span class="rule-id">R07</span>
+      <span class="rule-name">Collapse ### build output</span>
+      <span class="rule-reduction">~56% reduction</span>
+    </div>
+    <p>Simulink build logs emit many <code>### Starting model build...</code> / <code>### Successful completion...</code> lines. R07 keeps only the completion lines and folds them into a single summary line listing what was built.</p>
+    <div class="before-after">
+      <div>
+        <div class="label-ba before">Before</div>
+        <pre>### Starting model build procedure for model: PMSM_Motor
+### Generating code and artifacts to 'Model' folder structure ...
+### Generating code into build folder: /tmp/PMSM_Motor_ert_rtw
+### Invoking Target Language Compiler (TLC) ...
+### Successful completion of build procedure for model: PMSM_Motor
+### Starting model build procedure for model: FOC_Controller
+### Successful completion of build procedure for model: FOC_Controller
+### Starting model build procedure for model: ThermalModel
+### Successful completion of build procedure for model: ThermalModel
+### Starting model build procedure for model: test_PMSM_FEM_foc
+### Successful completion of build procedure for model: test_PMSM_FEM_foc</pre>
+      </div>
+      <div>
+        <div class="label-ba after">After</div>
+        <pre>### Built: PMSM_Motor, FOC_Controller, ThermalModel, test_PMSM_FEM_foc</pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- R08 -->
+  <div class="rule-card" id="rule-r08">
+    <div class="rule-header">
+      <span class="rule-id">R08</span>
+      <span class="rule-name">Elide repeated progress lines</span>
+      <span class="rule-reduction">~79% reduction</span>
+    </div>
+    <p>DOE or batch-simulation scripts often print one progress line per point (e.g. <code>DOE point 3/55: Id=-100, Iq=200</code>). When more than 4 such lines match a common prefix pattern, keeps the first 2 and last 2, eliding the middle with a count.</p>
+    <div class="before-after">
+      <div>
+        <div class="label-ba before">Before</div>
+        <pre>DOE point 1/21: speed=1000, torque=50
+DOE point 2/21: speed=1000, torque=100
+DOE point 3/21: speed=2000, torque=50
+...
+DOE point 19/21: speed=6000, torque=100
+DOE point 20/21: speed=7000, torque=50
+DOE point 21/21: speed=7000, torque=100
+
+(21 lines total)</pre>
+      </div>
+      <div>
+        <div class="label-ba after">After</div>
+        <pre>DOE point 1/21: speed=1000, torque=50
+DOE point 2/21: speed=1000, torque=100
+... [17 lines omitted]
+DOE point 20/21: speed=7000, torque=50
+DOE point 21/21: speed=7000, torque=100</pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- R09 -->
+  <div class="rule-card" id="rule-r09">
+    <div class="rule-header">
+      <span class="rule-id">R09</span>
+      <span class="rule-name">Compact test runner results</span>
+      <span class="rule-reduction">~62% reduction</span>
+    </div>
+    <p>MATLAB Test Framework output includes headers, separator lines, dot progress indicators, and a full results table. R09 extracts the pass/fail summary and the failure messages, discarding all decorative formatting.</p>
+    <div class="before-after">
+      <div>
+        <div class="label-ba before">Before</div>
+        <pre>Running unit_tests
+......F.
+Done unit_tests
+__________
+
+Failure Summary:
+================
+Test Name:              test_gamma
+Failed:                 true
+Test Diagnostic:        Expected 107, got 88
+
+Total Tests: 8  Passed: 7  Failed: 1  Incomplete: 0</pre>
+      </div>
+      <div>
+        <div class="label-ba after">After</div>
+        <pre>PASS (7): test_alpha, test_beta, test_delta, test_epsilon, test_zeta, test_eta, test_theta
+FAIL (1): test_gamma
+  Expected 107, got 88</pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- R10 -->
+  <div class="rule-card" id="rule-r10">
+    <div class="rule-header">
+      <span class="rule-id">R10</span>
+      <span class="rule-name">Inline struct field display</span>
+      <span class="rule-reduction">~32% reduction</span>
+    </div>
+    <p>MATLAB prints struct fields in a block format with blank lines between fields. R10 collapses this into a one-line-per-field format, removing blank lines and aligning with spaces rather than newlines.</p>
+    <div class="before-after">
+      <div>
+        <div class="label-ba before">Before</div>
+        <pre>motor =
+
+  struct with fields:
+
+    Ld: 2.1000e-04
+    Lq: 3.8000e-04
+    Rs: 0.0420
+    poles: 8
+    psi_pm: 0.1230</pre>
+      </div>
+      <div>
+        <div class="label-ba after">After</div>
+        <pre>motor: Ld=2.1000e-04  Lq=3.8000e-04  Rs=0.0420  poles=8  psi_pm=0.1230</pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- R11 -->
+  <div class="rule-card" id="rule-r11">
+    <div class="rule-header">
+      <span class="rule-id">R11</span>
+      <span class="rule-name">Strip "An error occurred" boilerplate</span>
+      <span class="rule-reduction">always active</span>
+    </div>
+    <p>MATLAB wraps every error in a generic header: <code>An error occurred during the execution of...</code>. This header adds no diagnostic value beyond what the actual error message contains. R11 strips the wrapper and returns only the error message body.</p>
+    <div class="before-after">
+      <div>
+        <div class="label-ba before">Before</div>
+        <pre>An error occurred during the execution of the MATLAB code.
+Error message: Undefined function 'foc_step' for input
+arguments of type 'double'.
+
+Error in run_motor_test (line 47)</pre>
+      </div>
+      <div>
+        <div class="label-ba after">After</div>
+        <pre>Undefined function 'foc_step' for input
+arguments of type 'double'.
+
+Error in run_motor_test (line 47)</pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- R12 -->
+  <div class="rule-card" id="rule-r12">
+    <div class="rule-header">
+      <span class="rule-id">R12</span>
+      <span class="rule-name">Dedup redundant Caused-By block</span>
+      <span class="rule-reduction">~58% reduction</span>
+    </div>
+    <p>Some MATLAB errors include a <code>Caused by:</code> section that exactly repeats the primary error message. When the Caused-By text is a substring of the main error, R12 removes the entire Caused-By block.</p>
+    <div class="before-after">
+      <div>
+        <div class="label-ba before">Before</div>
+        <pre>Error using sim
+Simulation stopped at time 0.035.
+
+Caused by:
+    Error using sim
+    Simulation stopped at time 0.035.</pre>
+      </div>
+      <div>
+        <div class="label-ba after">After</div>
+        <pre>Error using sim
+Simulation stopped at time 0.035.</pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- R13 -->
+  <div class="rule-card" id="rule-r13">
+    <div class="rule-header">
+      <span class="rule-id">R13</span>
+      <span class="rule-name">Compact init-cond variable lists</span>
+      <span class="rule-reduction">variable</span>
+    </div>
+    <p>Simscape and Simulink print long lists of initial condition variables when configuring a model. R13 detects the <code>Initial conditions:</code> block and collapses variable lists longer than 6 entries to show the first 3 and a count of the remainder.</p>
+    <div class="before-after">
+      <div>
+        <div class="label-ba before">Before</div>
+        <pre>Initial conditions:
+  x_rotor_angle = 0
+  x_rotor_speed = 0
+  x_id = 0
+  x_iq = 0
+  x_lambda_d = 0.1230
+  x_lambda_q = 0
+  x_T_winding = 20
+  x_T_stator = 20
+  x_T_rotor = 20</pre>
+      </div>
+      <div>
+        <div class="label-ba after">After</div>
+        <pre>Initial conditions:
+  x_rotor_angle=0  x_rotor_speed=0  x_id=0
+  [... 6 more vars ...]</pre>
+      </div>
+    </div>
+  </div>
+
+</section>
+
+<!-- ─────────────────────────────────────────────── TEST SCENARIOS -->
+<section class="section" id="test-scenarios">
+  <h2>Test Scenarios</h2>
+  <p>The test suite in <code>tests/</code> validates each rule in isolation. All tests run without a live MATLAB connection — they feed synthetic strings into the compressor and verify the output.</p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>File</th>
+        <th>Rule(s) tested</th>
+        <th>What it covers</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>test_repeated_warnings.m</code></td>
+        <td>R01</td>
+        <td>Verifies that 4 identical warning+trace blocks collapse to one with <code>[×4]</code>; checks that two different warnings are each kept; checks single occurrence is unchanged.</td>
+      </tr>
+      <tr>
+        <td><code>test_whos_table.m</code></td>
+        <td>R03</td>
+        <td>Full 26-line <code>whos</code> output with 6 variables. Verifies compact one-liner format, correct size strings, class abbreviations (<code>dbl</code> for double, <code>sgl</code> for single), and that complex flag is preserved.</td>
+      </tr>
+      <tr>
+        <td><code>test_large_array.m</code></td>
+        <td>R04</td>
+        <td>1000×1 column vector output. Verifies summary format <code>[1000x1: first=…, last=…]</code>; checks that small arrays (&lt;= 20 rows) are not compressed; checks 2D array passthrough.</td>
+      </tr>
+      <tr>
+        <td><code>test_build_log.m</code></td>
+        <td>R07</td>
+        <td>Simulink code-generation log with 10 <code>###</code> lines covering 4 models. Verifies single-line summary with all model names; checks that non-build <code>###</code> lines are untouched.</td>
+      </tr>
+      <tr>
+        <td><code>test_doe_progress.m</code></td>
+        <td>R08</td>
+        <td>21 DOE point lines with consistent prefix. Verifies first 2 + elision marker + last 2; checks that 4-line sequences are not elided; checks heterogeneous lines are passed through.</td>
+      </tr>
+      <tr>
+        <td><code>test_test_runner.m</code></td>
+        <td>R09</td>
+        <td>Full MATLAB test framework output for 8 tests (7 pass, 1 fail). Verifies PASS list, FAIL entry with diagnostic; checks all-pass case; checks all-fail case.</td>
+      </tr>
+      <tr>
+        <td><code>test_struct_display.m</code></td>
+        <td>R10</td>
+        <td>Nested struct display (motor parameters). Verifies field inlining; checks that nested structs are not collapsed (only top-level fields); checks numeric precision preservation.</td>
+      </tr>
+      <tr>
+        <td><code>test_error_boilerplate.m</code></td>
+        <td>R11, R12</td>
+        <td>Error with both "An error occurred" wrapper and redundant Caused-By block. Verifies wrapper stripping; verifies Caused-By deduplication; checks that non-redundant Caused-By blocks are kept.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Running specific tests</h3>
+  <pre><code># Run all tests
+python3 -m pytest tests/ -v
+
+# Run a single test file
+python3 -m pytest tests/test_whos_table.py -v
+
+# Run with coverage (requires pytest-cov)
+python3 -m pytest tests/ --cov=compressor --cov-report=term-missing</code></pre>
+</section>
+
+<!-- ─────────────────────────────────────────────── TROUBLESHOOTING -->
+<section class="section" id="troubleshooting">
+  <h2>Troubleshooting</h2>
+
+  <h3>How to confirm the proxy is active</h3>
+  <p>Run a MATLAB command in Claude that would normally produce a <code>whos</code> table or repeated warnings. If the output contains <code>whos:</code> on a single line with <code>[NxM,dbl]</code> format, the proxy is active. If you see the full aligned table, the proxy is not in the path.</p>
+  <p>You can also check the process list:</p>
+  <pre><code>ps aux | grep proxy.py
+# Should show: python3 .../proxy.py --upstream ...</code></pre>
+
+  <h3>Proxy is not starting</h3>
+  <div class="callout warn">
+    <p>Check Claude Desktop logs at <code>~/Library/Logs/Claude/</code> for startup errors from the proxy process.</p>
+  </div>
+  <ul>
+    <li>Verify <code>proxy.py</code> is executable: <code>ls -l proxy.py</code> should show <code>-rwxr-xr-x</code>.</li>
+    <li>Verify Python 3: <code>python3 --version</code>.</li>
+    <li>Run the proxy manually to see errors: <code>python3 proxy.py --upstream /Users/soorajkrishnan/matlab-mcp-server --help</code></li>
+    <li>Check that the upstream path exists: <code>ls /Users/soorajkrishnan/matlab-mcp-server</code></li>
+  </ul>
+
+  <h3>A rule is cutting output I need</h3>
+  <p>The fastest fix is to switch to <code>--bypass</code> mode in the config (see SWAP Guide). If you want to disable a specific rule permanently, comment out the relevant function call in <code>compressor.py</code>.</p>
+  <p>Rules are applied in a named pipeline — each function is clearly labeled R01–R13. To disable R04 (large array truncation), comment out the <code>r04_truncate_arrays(text)</code> call.</p>
+
+  <h3>Proxy is adding latency</h3>
+  <p>The proxy adds 0.065ms median overhead and 2.2ms worst-case for large responses (~51k characters). If you observe latency higher than 50ms attributable to the proxy, check for:</p>
+  <ul>
+    <li>Python startup overhead (subprocess re-launch) — this should not happen after the first call.</li>
+    <li>Disk I/O from logging — the proxy does not write logs by default.</li>
+    <li>Pathological regex on malformed input — add the <code>--bypass</code> flag and re-test.</li>
+  </ul>
+
+  <h3>Claude is not seeing the full numeric result</h3>
+  <p>R04 (large array truncation) shows only <code>first</code> and <code>last</code> values. If Claude needs to reason about the full array:</p>
+  <ul>
+    <li>Ask MATLAB to compute a summary statistic instead: <code>min/max/mean/std</code>.</li>
+    <li>Ask MATLAB to plot the array — the plot is visible in the MATLAB desktop.</li>
+    <li>Store to a .mat file and ask Claude to describe the structure.</li>
+    <li>Use <code>--bypass</code> if you need to see the raw values in the Claude context.</li>
+  </ul>
+
+  <h3>Common issues table</h3>
+  <table>
+    <thead>
+      <tr><th>Symptom</th><th>Likely cause</th><th>Fix</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>MATLAB MCP tool not found in Claude</td>
+        <td>Config JSON parse error after swap</td>
+        <td>Validate JSON: <code>python3 -c "import json; json.load(open('config.json'))"</code></td>
+      </tr>
+      <tr>
+        <td>Raw output returned (no compression)</td>
+        <td><code>--bypass</code> flag still in config</td>
+        <td>Remove <code>"--bypass"</code> from args list, restart Claude</td>
+      </tr>
+      <tr>
+        <td>Proxy exits immediately</td>
+        <td>Upstream binary path wrong</td>
+        <td>Check <code>--upstream</code> path exists and is executable</td>
+      </tr>
+      <tr>
+        <td>Build log summary missing a model</td>
+        <td>Non-standard <code>###</code> line format</td>
+        <td>Check the actual log — R07 matches "Successful completion" lines only</td>
+      </tr>
+      <tr>
+        <td>Test runner output not compacted</td>
+        <td>Custom test framework output format</td>
+        <td>R09 matches standard MATLAB Test Framework format; custom reporters are passed through unchanged</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>When to disable the proxy entirely</h3>
+  <div class="callout danger">
+    <p>Disable the proxy (use direct config) if:</p>
+    <ul>
+      <li>You are debugging a rule that you suspect is corrupting output.</li>
+      <li>You need to copy-paste exact MATLAB output into a bug report.</li>
+      <li>You are running automated integration tests that compare exact tool output strings.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────────── PERFORMANCE -->
+<section class="section" id="performance">
+  <h2>Performance</h2>
+
+  <p>All measurements were taken on a MacBook Pro M3 Max running macOS Sequoia with Python 3.11. The compressor was called directly (no subprocess or stdio overhead) to isolate pure CPU time.</p>
+
+  <h3>Latency distribution</h3>
+  <table>
+    <thead>
+      <tr><th>Input size</th><th>p50 (median)</th><th>p95</th><th>p99</th><th>Worst case</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Small (&lt; 1k chars)</td><td>0.012ms</td><td>0.018ms</td><td>0.022ms</td><td>0.035ms</td></tr>
+      <tr><td>Medium (1k–10k chars)</td><td>0.065ms</td><td>0.11ms</td><td>0.18ms</td><td>0.4ms</td></tr>
+      <tr><td>Large (10k–51k chars)</td><td>0.42ms</td><td>1.1ms</td><td>1.8ms</td><td>2.2ms</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout">
+    <p><strong>0.013% overhead</strong>: A typical MATLAB simulation call takes 500ms–5s. The proxy adds 0.065ms median latency — approximately 0.013% of a 500ms call. This is unmeasurable in practice.</p>
+  </div>
+
+  <h3>Compression ratios by rule</h3>
+  <table>
+    <thead>
+      <tr><th>Rule</th><th>Description</th><th>Typical reduction</th><th>Best case</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>R01</td><td>Repeated warnings</td><td>59%</td><td>90%+ (many repeats)</td></tr>
+      <tr><td>R02</td><td>Deep stack traces</td><td>40%</td><td>75% (20+ frame trace)</td></tr>
+      <tr><td>R03</td><td>whos tables</td><td>74%</td><td>85% (many variables)</td></tr>
+      <tr><td>R04</td><td>Large numeric arrays</td><td>85%</td><td>99% (10k+ row vector)</td></tr>
+      <tr><td>R05</td><td>Simulink block paths</td><td>25%</td><td>55% (8+ path segments)</td></tr>
+      <tr><td>R06</td><td>Algebraic loop lists</td><td>63%</td><td>80% (20+ blocks)</td></tr>
+      <tr><td>R07</td><td>Build log output</td><td>56%</td><td>78% (10+ models)</td></tr>
+      <tr><td>R08</td><td>Progress lines</td><td>79%</td><td>95% (55-point DOE)</td></tr>
+      <tr><td>R09</td><td>Test runner results</td><td>62%</td><td>80% (large test suite)</td></tr>
+      <tr><td>R10</td><td>Struct display</td><td>32%</td><td>55% (wide struct)</td></tr>
+      <tr><td>R11</td><td>Error boilerplate</td><td>always</td><td>30% of error text</td></tr>
+      <tr><td>R12</td><td>Caused-By dedup</td><td>58%</td><td>50% of error text</td></tr>
+      <tr><td>R13</td><td>Init-cond lists</td><td>variable</td><td>70% (16+ state model)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Overall compression across test suite</h3>
+  <table>
+    <thead>
+      <tr><th>Test scenario</th><th>Input tokens (est.)</th><th>Output tokens (est.)</th><th>Reduction</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Repeated warnings (×8)</td><td>320</td><td>62</td><td>81%</td></tr>
+      <tr><td>whos table (6 vars)</td><td>140</td><td>36</td><td>74%</td></tr>
+      <tr><td>Large array (1000 rows)</td><td>2800</td><td>18</td><td>99%</td></tr>
+      <tr><td>Build log (4 models)</td><td>180</td><td>28</td><td>84%</td></tr>
+      <tr><td>DOE progress (55 points)</td><td>440</td><td>88</td><td>80%</td></tr>
+      <tr><td>Test runner (8 tests)</td><td>220</td><td>55</td><td>75%</td></tr>
+      <tr><td>Struct display (motor params)</td><td>90</td><td>32</td><td>64%</td></tr>
+      <tr><td>Error with Caused-By</td><td>80</td><td>42</td><td>47%</td></tr>
+      <tr><td><strong>Average</strong></td><td><strong>534</strong></td><td><strong>45</strong></td><td><strong>~48%</strong></td></tr>
+    </tbody>
+  </table>
+
+  <p style="color: var(--muted); font-size: 0.85em;">Token estimates use the approximation of 4 characters per token. Actual savings depend on tokenizer and content.</p>
+
+  <h3>Live test: Quarter-Car Active Suspension (2026-05-20)</h3>
+  <p>Results from a real Simscape model built and simulated during this session:</p>
+  <table>
+    <thead><tr><th>Output type</th><th>Raw chars</th><th>Compressed</th><th>Reduction</th></tr></thead>
+    <tbody>
+      <tr><td>whos (12 workspace vars)</td><td>755</td><td>189</td><td>75%</td></tr>
+      <tr><td>Repeated singular warnings ×6</td><td>329</td><td>97</td><td>71%</td></tr>
+      <tr><td>Solver warning (repeated ×3)</td><td>471</td><td>163</td><td>65%</td></tr>
+      <tr><td>Build output</td><td>189</td><td>57</td><td>70%</td></tr>
+      <tr><td>Results struct display</td><td>237</td><td>165</td><td>30%</td></tr>
+      <tr><td><strong>Session total</strong></td><td><strong>1981</strong></td><td><strong>671</strong></td><td><strong>66%</strong></td></tr>
+    </tbody>
+  </table>
+
+  <h3>Memory footprint</h3>
+  <p>The proxy process uses approximately 18MB RSS at idle. No caching or state is maintained between calls.</p>
+
+  <h3>Throughput</h3>
+  <p>The compressor processes approximately 150MB/s. The bottleneck is always MATLAB execution time, never the proxy (&lt;0.1ms overhead per call).</p>
+</section>
+
+<section id="critical-notes">
+  <h2>Critical Implementation Notes</h2>
+
+  <h3>⚠️ Correct config file for Claude Code</h3>
+  <div style="background:var(--code-bg);border-left:3px solid var(--danger);padding:1em;margin:1em 0;border-radius:4px;">
+    <strong>Claude Code CLI / VS Code extension</strong> reads MCP servers from <code>~/.claude.json</code> → <code>mcpServers</code> section.<br>
+    <strong>Claude Desktop app</strong> reads from <code>~/Library/Application Support/Claude/claude_desktop_config.json</code>.<br><br>
+    These are completely separate files. Editing the wrong one has zero effect.
+  </div>
+
+  <h3>Why matlab connects but simulink doesn't (without the fix)</h3>
+  <p>The two servers use fundamentally different session modes:</p>
+  <table>
+    <thead><tr><th>Server</th><th>Session mode</th><th>Behaviour</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>matlab</code></td>
+        <td><code>--matlab-session-mode=new</code> (default)</td>
+        <td><strong>Self-contained.</strong> Starts its own MATLAB when the first tool is called. Never fails to connect — it owns its session.</td>
+      </tr>
+      <tr>
+        <td><code>simulink</code></td>
+        <td><code>--matlab-session-mode=existing</code></td>
+        <td><strong>Dependent.</strong> Polls for an already-running MATLAB session at startup for up to 30 seconds. If none found → permanent failure. Cannot start MATLAB itself.</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>The <code>existing</code> mode is intentional: it makes the simulink server share the <em>same</em> MATLAB workspace as the matlab server — same variables, same open models, same path. If simulink started its own MATLAB, model edits and workspace state would be isolated.</p>
+  <p style="color:var(--warn)"><strong>The problem:</strong> the matlab server starts MATLAB <em>lazily</em> (only when a tool is called). By the time the first matlab tool is called, the simulink server's 30-second discovery window has already expired.</p>
+  <p style="color:var(--accent)"><strong>The fix:</strong> <code>--initialize-matlab-on-startup=true</code> on the matlab server forces MATLAB to start eagerly at Claude Code launch (~15-20s). The simulink server finds the session within the 30s window and connects reliably.</p>
+
+  <h3>Open upstream issue</h3>
+  <p>This is a known gap in <code>matlab-mcp-core-server</code>. <a href="https://github.com/matlab/matlab-mcp-core-server/issues/62" style="color:var(--accent)">Issue #62</a> (filed Apr 2026, open): <em>"When using --matlab-session-mode=existing, MCP server should start a MATLAB instance if it doesn't find one."</em> Until MathWorks closes this, <code>--initialize-matlab-on-startup=true</code> is the correct workaround.</p>
+
+  <h3>Startup sequence (current config)</h3>
+  <pre style="font-size:0.82em;line-height:1.6">Claude Code launches
+  │
+  ├─ matlab server starts
+  │    └─ MATLAB boots immediately (--initialize-matlab-on-startup=true) ~15-20s
+  │         └─ writes connector.securePort
+  │
+  └─ simulink server starts (--matlab-session-mode=existing)
+       └─ polls connector.securePort every ~2s for 30s
+            └─ at ~15-20s: MATLAB responds → session shared → CONNECTED ✅</pre>
+
+  <h3>⚠️ Wire format: Content-Length framing</h3>
+  <p><code>matlab-mcp-core-server</code> uses <strong>Content-Length framing</strong> (LSP/JSON-RPC style), not newline-delimited JSON. The proxy auto-detects this by checking for a <code>Content-Length:</code> header line, draining all headers, then reading exactly N bytes.</p>
+  <p>If you see raw <code>]</code> characters in tool output, the proxy is passing messages through uncompressed — the Content-Length framing fix is not being applied. Verify <code>proxy.py</code> version with <code>git log matlab-mcp-proxy/proxy.py</code>.</p>
+</section>
+
+<section id="revert">
+  <h2>Revert to Default (No Proxy)</h2>
+
+  <h3>One-command revert</h3>
+  <pre><code>bash /Users/soorajkrishnan/simscape-agent/matlab-mcp-proxy/install.sh --uninstall
+# Then restart Claude Code</code></pre>
+
+  <h3>Manual revert (edit ~/.claude.json directly)</h3>
+  <pre><code>python3 - &lt;&lt; 'EOF'
+import json
+d = json.load(open('/Users/soorajkrishnan/.claude.json'))
+core    = '/Users/soorajkrishnan/.local/bin/matlab-mcp-core-server'
+toolkit = '/Users/soorajkrishnan/simscape-agent/simulink-agentic-toolkit'
+d['mcpServers']['matlab'] = {
+    "command": core,
+    "args": ["--initial-working-folder",
+             "/Users/soorajkrishnan/simscape-agent/work",
+             "--matlab-root", "/Applications/MATLAB_R2025a.app"],
+    "env": {}, "type": "stdio"
+}
+d['mcpServers']['simulink'] = {
+    "command": core,
+    "args": ["--matlab-session-mode=existing",
+             f"--extension-file={toolkit}/tools/tools.json"],
+    "env": {}, "type": "stdio"
+}
+json.dump(d, open('/Users/soorajkrishnan/.claude.json','w'), indent=2)
+print("Reverted to direct connections")
+EOF</code></pre>
+
+  <h3>Verify revert worked</h3>
+  <p>After restarting Claude Code, check that no <code>proxy.py</code> processes appear in <code>ps aux | grep proxy</code>, and that <code>matlab-mcp-core-server</code> runs directly as the MCP server command.</p>
+
+  <h3>When to revert</h3>
+  <ul>
+    <li>A simulation result looks wrong and you need to verify raw MATLAB output</li>
+    <li>An error message appears truncated and you need full context</li>
+    <li>The proxy crashes (exits with error) and Claude shows the server as disconnected</li>
+    <li>You see <code>]</code> characters leaking into tool output (proxy parsing bug)</li>
+    <li>You need to debug Simscape initial conditions and need the full Variable Viewer output</li>
+  </ul>
+</section>
+
+</main>
+
+<script>
+// Highlight active sidebar link based on scroll position
+(function() {
+  const sections = document.querySelectorAll('section[id]');
+  const links = document.querySelectorAll('#sidebar nav a');
+
+  function onScroll() {
+    let current = '';
+    sections.forEach(s => {
+      if (window.scrollY >= s.offsetTop - 80) current = s.id;
+    });
+    links.forEach(a => {
+      a.classList.toggle('active', a.getAttribute('href') === '#' + current);
+    });
+  }
+
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+})();
+</script>
+
+</body>
+</html>
