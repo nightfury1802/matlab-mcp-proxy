@@ -350,14 +350,14 @@
 
   <div class="stats-row">
     <div class="stat-card"><div class="value">48%</div><div class="label">Average token reduction</div></div>
-    <div class="stat-card"><div class="value">13</div><div class="label">Compression rules</div></div>
+    <div class="stat-card"><div class="value">14</div><div class="label">Compression rules</div></div>
     <div class="stat-card"><div class="value">0.065ms</div><div class="label">Median overhead</div></div>
     <div class="stat-card"><div class="value">0</div><div class="label">Tool call changes needed</div></div>
   </div>
 
   <h3>Why it exists</h3>
   <p>MATLAB MCP server responses are verbose by design — they include rich diagnostic output, full warning traces, aligned <code>whos</code> tables, long progress logs, and structured build output. This verbosity is useful when reading in a terminal but is expensive when consumed by an LLM.</p>
-  <p>The proxy applies 13 targeted compression rules to MATLAB tool responses. Each rule is reversible in principle (no information loss that Claude would act on), lossless for error messages, and always preserves the first and last values of numeric sequences so Claude can still reason about simulation results.</p>
+  <p>The proxy applies 14 targeted compression rules to MATLAB tool responses. Each rule is reversible in principle (no information loss that Claude would act on), lossless for error messages, and always preserves the first and last values of numeric sequences so Claude can still reason about simulation results.</p>
 
   <h3>What it is not</h3>
   <ul>
@@ -579,7 +579,7 @@ bash install.sh --status</code></pre>
 <!-- ─────────────────────────────────────────────── RULES REFERENCE -->
 <section class="section" id="rules">
   <h2>Rules Reference</h2>
-  <p>All 13 rules are applied in order R01 → R13 on every tool response text. Rules are independent — each operates on the output of the previous rule.</p>
+  <p>All 14 rules are applied in order R01 → R14 on every tool response text. Rules are independent — each operates on the output of the previous rule.</p>
 
   <!-- R01 -->
   <div class="rule-card" id="rule-r01">
@@ -956,6 +956,30 @@ Simulation stopped at time 0.035.</pre>
     </div>
   </div>
 
+  <!-- R14 -->
+  <div class="rule-card" id="rule-r14">
+    <div class="rule-header">
+      <span class="rule-id">R14</span>
+      <span class="rule-name">Shorten unquoted block paths in model_read output</span>
+      <span class="rule-reduction">~36%</span>
+    </div>
+    <p>The simulink MCP <code>model_read</code> and <code>model_overview</code> tools return block paths in unquoted form (e.g. <code>Block: Model/Sub1/Sub2/Sub3/block</code>). R05 only handles <em>quoted</em> paths. R14 applies the same depth-shortening logic to lines starting with <code>Block:</code>, replacing intermediate segments with <code>...</code> when depth exceeds 4.</p>
+    <div class="before-after">
+      <div>
+        <div class="label-ba before">Before</div>
+        <pre>Block: QCarV2/Simscape_Plant/Motor/Electrical/Stator/Phase_A
+Block: QCarV2/Simscape_Plant/Motor/Electrical/Stator/Phase_B
+Block: QCarV2/Simscape_Plant/Motor/Electrical/Stator/Phase_C</pre>
+      </div>
+      <div>
+        <div class="label-ba after">After</div>
+        <pre>Block: QCarV2/.../Stator/Phase_A
+Block: QCarV2/.../Stator/Phase_B
+Block: QCarV2/.../Stator/Phase_C</pre>
+      </div>
+    </div>
+  </div>
+
 </section>
 
 <!-- ─────────────────────────────────────────────── TEST SCENARIOS -->
@@ -1049,7 +1073,7 @@ python3 -m pytest tests/ --cov=compressor --cov-report=term-missing</code></pre>
 
   <h3>A rule is cutting output I need</h3>
   <p>The fastest fix is to switch to <code>--bypass</code> mode in the config (see SWAP Guide). If you want to disable a specific rule permanently, comment out the relevant function call in <code>compressor.py</code>.</p>
-  <p>Rules are applied in a named pipeline — each function is clearly labeled R01–R13. To disable R04 (large array truncation), comment out the <code>r04_truncate_arrays(text)</code> call.</p>
+  <p>Rules are applied in a named pipeline — each function is clearly labeled R01–R14. To disable R04 (large array truncation), comment out the corresponding call in the <code>RULES</code> list in <code>compressor.py</code>.</p>
 
   <h3>Proxy is adding latency</h3>
   <p>The proxy adds 0.065ms median overhead and 2.2ms worst-case for large responses (~51k characters). If you observe latency higher than 50ms attributable to the proxy, check for:</p>
@@ -1154,6 +1178,7 @@ python3 -m pytest tests/ --cov=compressor --cov-report=term-missing</code></pre>
       <tr><td>R11</td><td>Error boilerplate</td><td>always</td><td>30% of error text</td></tr>
       <tr><td>R12</td><td>Caused-By dedup</td><td>58%</td><td>50% of error text</td></tr>
       <tr><td>R13</td><td>Init-cond lists</td><td>variable</td><td>70% (16+ state model)</td></tr>
+      <tr><td>R14</td><td>model_read block paths</td><td>36%</td><td>55% (deep Simscape hierarchy)</td></tr>
     </tbody>
   </table>
 
@@ -1178,16 +1203,34 @@ python3 -m pytest tests/ --cov=compressor --cov-report=term-missing</code></pre>
   <p style="color: var(--muted); font-size: 0.85em;">Token estimates use the approximation of 4 characters per token. Actual savings depend on tokenizer and content.</p>
 
   <h3>Live test: Quarter-Car Active Suspension (2026-05-20)</h3>
-  <p>Results from a real Simscape model built and simulated during this session:</p>
+  <p>A 2-DOF Simscape quarter-car active suspension model was built and validated in two ways:</p>
+  <ul>
+    <li><strong>QCar.slx</strong> — built via <code>evaluate_matlab_code</code> + Simscape API calls through the matlab proxy</li>
+    <li><strong>QCarV2.slx</strong> — rebuilt from scratch using <code>model_edit</code> from the Simulink Agentic Toolkit through the simulink proxy (shared MATLAB session)</li>
+  </ul>
+  <p>Both produced identical physical results, confirming shared session and correct proxy behaviour for both servers.</p>
+
+  <h4>Suspension performance (both models)</h4>
+  <table>
+    <thead><tr><th>Metric</th><th>Passive</th><th>Active (Kp=8000, Kd=800)</th><th>Improvement</th></tr></thead>
+    <tbody>
+      <tr><td>Peak chassis velocity</td><td>0.120 m/s</td><td>0.046 m/s</td><td><strong>61.7% lower</strong></td></tr>
+      <tr><td>Settling time (2% threshold)</td><td>2.665 s</td><td>1.761 s</td><td><strong>33.9% faster</strong></td></tr>
+    </tbody>
+  </table>
+
+  <h4>Compression savings during the session</h4>
   <table>
     <thead><tr><th>Output type</th><th>Raw chars</th><th>Compressed</th><th>Reduction</th></tr></thead>
     <tbody>
-      <tr><td>whos (12 workspace vars)</td><td>755</td><td>189</td><td>75%</td></tr>
+      <tr><td>whos (8 workspace params)</td><td>411</td><td>113</td><td>73%</td></tr>
+      <tr><td>whos (12 workspace vars incl. results)</td><td>755</td><td>189</td><td>75%</td></tr>
+      <tr><td>Repeated singular warnings ×5</td><td>275</td><td>97</td><td>65%</td></tr>
       <tr><td>Repeated singular warnings ×6</td><td>329</td><td>97</td><td>71%</td></tr>
       <tr><td>Solver warning (repeated ×3)</td><td>471</td><td>163</td><td>65%</td></tr>
-      <tr><td>Build output</td><td>189</td><td>57</td><td>70%</td></tr>
+      <tr><td>model_read block paths (R14)</td><td>415</td><td>265</td><td>36%</td></tr>
       <tr><td>Results struct display</td><td>237</td><td>165</td><td>30%</td></tr>
-      <tr><td><strong>Session total</strong></td><td><strong>1981</strong></td><td><strong>671</strong></td><td><strong>66%</strong></td></tr>
+      <tr><td><strong>Combined session total</strong></td><td><strong>2893</strong></td><td><strong>1089</strong></td><td><strong>62%</strong></td></tr>
     </tbody>
   </table>
 
