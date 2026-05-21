@@ -15,7 +15,16 @@ This proxy sits between Claude Code and `matlab-mcp-core-server` and applies 14 
 
 ## Results
 
-Validated on a real Simscape quarter-car active suspension model (2-DOF, Simscape Foundation library, PD controller):
+Validated on a 2-DOF Simscape quarter-car active suspension model (ms=400 kg, Simscape Foundation library, PD controller). The model was built twice — once via `evaluate_matlab_code` and once entirely via `model_edit` from the Simulink Agentic Toolkit — both producing identical results.
+
+**Suspension performance (active PD vs passive):**
+
+| Metric | Passive | Active | Improvement |
+|---|---|---|---|
+| Peak chassis velocity | 0.120 m/s | 0.046 m/s | **61.7% lower** |
+| Settling time | 2.665 s | 1.761 s | **33.9% faster** |
+
+**Token compression by output type:**
 
 | Output type | Reduction |
 |---|---|
@@ -26,6 +35,7 @@ Validated on a real Simscape quarter-car active suspension model (2-DOF, Simscap
 | DOE progress loop (55 pts) | **79%** |
 | Test runner output | **62%** |
 | Algebraic loop block list | **63%** |
+| `model_read` block paths (R14) | **36%** |
 | Deep call stack | **40%** |
 | Struct field display | **32%** |
 | **Session average** | **48–66%** |
@@ -88,7 +98,7 @@ bash install.sh --uninstall  # restore direct connections
 
 ### 3. Restart Claude Code
 
-MATLAB starts automatically on first tool call (~15–20s). The simulink server attaches within a 30-second discovery window.
+MATLAB starts automatically at Claude Code launch (~15–20s, eager start). Both the `matlab` and `simulink` servers share the **same MATLAB session** — variables you set via `evaluate_matlab_code` are visible to `model_edit`, and models you build with `model_edit` can be simulated via `sim()`. The simulink server attaches within a 30-second discovery window.
 
 ## Configuration
 
