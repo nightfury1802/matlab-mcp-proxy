@@ -61,7 +61,7 @@ def classify(text: str) -> OutputType:
 
 
 _PIPELINES: dict[OutputType, list] = {
-    OutputType.WHOS:        [compress_whos],
+    OutputType.WHOS:        [compress_struct_display, compress_whos],  # struct may precede whos in same output
     OutputType.ERROR:       [compress_sim_error_boilerplate, compress_block_lists,
                              compress_init_cond_vars, compress_stack_trace,
                              compress_caused_by, compress_block_paths],
