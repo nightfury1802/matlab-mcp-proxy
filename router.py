@@ -78,12 +78,21 @@ _PIPELINES: dict[OutputType, list] = {
 }
 
 
+_HTML_TAG = re.compile(r'<[^>]+>')
+
+
+def _strip_html(text: str) -> str:
+    """Remove HTML tags injected by MATLAB's rich-text command window output."""
+    return _HTML_TAG.sub('', text)
+
+
 def route(text: str) -> tuple[str, OutputType]:
     """
     Classify text and apply the matching pipeline.
     Returns (compressed_text, output_type).
     OutputType is returned so the proxy can dispatch to KB lookups.
     """
+    text = _strip_html(text)
     otype = classify(text)
     result = text
     for rule in _PIPELINES[otype]:

@@ -224,8 +224,8 @@ def compress_progress_lines(text: str) -> str:
     lines = text.split('\n')
 
     def normalize(line):
-        # Collapse whitespace BEFORE replacing numbers — fixes "  1/" vs " 10/"
         collapsed = re.sub(r'\s+', ' ', line.strip())
+        collapsed = re.sub(r'\s*=\s*', '=', collapsed)   # "Tref= 50" == "Tref=107"
         return re.sub(r'[\d.]+', 'N', collapsed)
 
     result = []

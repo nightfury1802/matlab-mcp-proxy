@@ -18,7 +18,7 @@ import json, os, time
 from pathlib import Path
 import numpy as np
 
-THRESHOLD = 0.82
+THRESHOLD = 0.79   # lowered from 0.82 — live testing showed 0.808 for near-synonym warnings
 DIM       = 384
 
 
