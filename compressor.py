@@ -224,8 +224,8 @@ def compress_progress_lines(text: str) -> str:
     lines = text.split('\n')
 
     def normalize(line):
-        # Collapse whitespace BEFORE replacing numbers — fixes "  1/" vs " 10/"
         collapsed = re.sub(r'\s+', ' ', line.strip())
+        collapsed = re.sub(r'\s*=\s*', '=', collapsed)   # "Tref= 50" == "Tref=107"
         return re.sub(r'[\d.]+', 'N', collapsed)
 
     result = []
@@ -378,6 +378,7 @@ def _shorten(path: str) -> str:
 
 
 # ── PIPELINE ─────────────────────────────────────────────────────────────────
+# Legacy: previously iterated by compress(). Now pipeline dispatch is in router.py.
 RULES = [
     ("sim_error_boilerplate", compress_sim_error_boilerplate),
     ("repeated_warnings",     compress_repeated_warnings),
@@ -396,9 +397,10 @@ RULES = [
 ]
 
 def compress(text: str) -> str:
-    for _, rule in RULES:
-        text = rule(text)
-    return text
+    """Entry point. Routes to type-specific pipeline via router.py."""
+    from router import route
+    compressed, _ = route(text)
+    return compressed
 
 def ratio(original: str, compressed: str) -> str:
     o, c = len(original), len(compressed)
