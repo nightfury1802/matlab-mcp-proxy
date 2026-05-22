@@ -11,18 +11,17 @@ A transparent MCP stdio proxy that compresses verbose MATLAB®, Simulink®, and 
 ```mermaid
 flowchart LR
     CC([Claude Code])
+    PX["proxy.py
+    ─────────────────────────────
+    strip · classify · compress
+    oracle · handles"]
+    UP(["matlab-mcp-core-server
+    MATLAB R2025a"])
 
-    subgraph proxy["proxy.py"]
-        direction TB
-        steps["strip HTML  ·  classify  ·  compress 14 rules\noracle → fix hint  ·  handles → SimHandle#N"]
-    end
-
-    UP(["matlab-mcp-core-server  +  MATLAB R2025a"])
-
-    CC -->|"request (unchanged)"| proxy
-    proxy -->|"pass-through"| UP
-    UP -->|"raw tool_result"| proxy
-    proxy -->|"compressed + enriched"| CC
+    CC -->|"① request — unchanged"| PX
+    PX -->|"pass-through"| UP
+    UP -->|"raw tool_result"| PX
+    PX -->|"② compressed + enriched"| CC
 ```
 
 > Full pipeline details, before/after examples, config reference: **[`docs/index.html`](docs/index.html)**
