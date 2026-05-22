@@ -9,18 +9,22 @@ A transparent MCP stdio proxy that compresses verbose MATLAB®, Simulink®, and 
 ## Architecture
 
 ```mermaid
+%%{init: {"flowchart": {"curve": "linear"}} }%%
 flowchart TD
     CC([Claude Code])
     UP(["matlab-mcp-core-server · MATLAB R2025a"])
 
     subgraph PX["  proxy.py  "]
         direction LR
-        A["Semantic\nMode Routing"] --> B["Output\nCompression"] --> C["Debugging\nOracle"] --> D["Sim Result\nHandles"]
+        A["Semantic Mode Routing"]
+        B["Output Compression"]
+        C["Debugging Oracle"]
+        D["Sim Result Handles"]
     end
 
-    CC -->|"① request — pass-through"| UP
+    CC -->|"request — pass-through"| UP
     UP -->|"raw tool_result"| PX
-    PX -->|"② compressed + enriched"| CC
+    PX -->|"compressed + enriched"| CC
 ```
 
 > Full pipeline details, before/after examples, config reference: **[`docs/index.html`](docs/index.html)**
