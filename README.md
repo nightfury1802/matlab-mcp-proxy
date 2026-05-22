@@ -245,7 +245,7 @@ bash install.sh --uninstall  # restore direct connections
 ### Seed the oracle
 
 ```bash
-python3 tests/pmsm_foc/seed_oracle.py   # loads 19 PMSM FOC + Simscape seeds
+python3 tests/pmsm_foc/seed_oracle.py   # loads 20 PMSM FOC + Simscape seeds
 ```
 
 ---
@@ -341,7 +341,9 @@ kb/
   embedder.py      — lazy-loaded BAAI/bge-small-en-v1.5 (384-dim)
   error_oracle.py  — Error→Fix vector KB, cosine similarity threshold 0.79
   sim_handles.py   — SimHandle#N context handle store
-kb_store/          — persisted oracle vectors + sim handles (19 seeds)
+  auto_learn.py    — Stop hook: auto-learn from session log at session end
+  learn.py         — Manual CLI: python3 kb/learn.py "error" "fix"
+kb_store/          — persisted oracle vectors + sim handles (20 seeds)
 install.sh         — patches ~/.claude.json for matlab + simulink
 tests/
   test_compressor.py       — 27 rules tests
