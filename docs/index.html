@@ -437,6 +437,37 @@ reduction: 48–82% depending on output type
 REQUEST path: Claude → proxy → upstream UNCHANGED
 </pre>
 
+  <!-- ── Key features callouts ─────────────────────────────── -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:24px 0">
+
+    <div class="callout" style="margin:0;border-left:3px solid var(--accent)">
+      <p><strong>🔍 Error→Fix Debugging Oracle</strong> — the flagship feature</p>
+      <p>Every MATLAB warning or error is embedded (bge-small-en-v1.5, 384-dim) and matched against a growing KB of known Simscape errors and fixes. When similarity ≥ 0.79 a <code>[ORACLE: fix hint]</code> is prepended — so Claude sees the fix alongside the problem, without you manually re-researching it.</p>
+      <p>Starts with 19 seeds covering PMSM FOC + Simscape modelling errors. <strong>Grows with every debugging session</strong> via <code>oracle.learn(error, fix)</code>.</p>
+      <p><a href="#oracle">Full oracle docs →</a></p>
+    </div>
+
+    <div class="callout" style="margin:0;border-left:3px solid var(--warn)">
+      <p><strong>📦 Simulation Result Handles</strong></p>
+      <p>A <code>sim()</code> result with 11 signals and 600+ chars becomes a single line: <code>[SimHandle#0] torque=107.63, iq=82.35</code>. Full output stored in <code>kb_store/handles/</code> and retrieved on request.</p>
+      <p>Reduces per-simulation context cost by <strong>71–95%</strong>.</p>
+      <p><a href="#handles">Full handle docs →</a></p>
+    </div>
+
+    <div class="callout" style="margin:0;border-left:3px solid var(--muted)">
+      <p><strong>🔀 Semantic Mode Routing</strong></p>
+      <p>11 output types classified before any rule runs. Each type gets only its relevant pipeline — no false positives. <code>classify()</code> adds &lt;0.04ms overhead.</p>
+      <p><a href="#mode-routing">Full routing docs →</a></p>
+    </div>
+
+    <div class="callout" style="margin:0;border-left:3px solid var(--muted)">
+      <p><strong>📊 Proven in a real session: ~10,600 tokens saved</strong></p>
+      <p>Measured while building <code>PMSM_FOC_Proxy_Test.slx</code> via Simulink MCP — 48 proxy firings, 15 oracle hits, 82% session-level reduction. Oracle caught: wrong electrical frequency (ω vs ωe = p×ω), wrong PID parameter names, IC conflicts, and more.</p>
+      <p>Try it: paste <code>tests/pmsm_foc/PROMPT.md</code> into Claude Code.</p>
+      <p><a href="#v2-performance">Full session stats →</a></p>
+    </div>
+  </div>
+
   <h3>Wire format: Content-Length framing</h3>
   <p><code>matlab-mcp-core-server</code> uses LSP-style Content-Length framing, not newline-delimited JSON. The proxy's <code>_read_message()</code> auto-detects this: if the first line starts with <code>Content-Length:</code>, it drains all header lines then reads exactly N bytes. Otherwise it treats the line as newline-delimited JSON. Both formats are supported transparently.</p>
 
@@ -1384,9 +1415,17 @@ EOF</code></pre>
 <section class="section" id="oracle">
   <h2>v2: Error→Fix Debugging Oracle</h2>
 
-  <p>A local vector knowledge base that maps MATLAB/Simscape error messages to known fixes. Uses <strong>BAAI/bge-small-en-v1.5</strong> (384-dim embeddings, ~22MB) via <code>sentence-transformers</code>. When an error's cosine similarity to a seeded pair exceeds <strong>0.79</strong>, a <code>[ORACLE: ...]</code> hint is prepended to the compressed output. Threshold lowered from 0.82 based on live validation — real MATLAB warnings use slightly different phrasing than textbook examples (e.g. "singular to working precision" vs "close to singular").</p>
+  <p>The flagship feature. Every time MATLAB throws a WARNING or ERROR, the proxy embeds the message (BAAI/bge-small-en-v1.5, 384-dim, ~22MB, CPU-only) and matches it against a growing KB of known errors and fixes. When cosine similarity ≥ 0.79, a <code>[ORACLE (score=X.XX): fix]</code> hint is prepended to the compressed output — <strong>so Claude sees the fix alongside the error, without any manual re-research</strong>.</p>
 
-  <p>The oracle fires only on <code>ERROR</code> and <code>WARNING</code> classified outputs — adding ~7ms on the error path (embedding cost). The non-error path has zero overhead.</p>
+  <p>The oracle fires only on <code>ERROR</code> and <code>WARNING</code> outputs — ~7ms on those paths, zero overhead everywhere else. The threshold was calibrated to 0.79 during live validation: real MATLAB warnings phrase things slightly differently than textbook descriptions ("singular to working precision" vs "close to singular"), and 0.79 captures these synonyms while rejecting unrelated errors (which score ~0.5–0.6).</p>
+
+  <div class="callout" style="border-left:3px solid var(--accent)">
+    <p><strong>The oracle grows with use.</strong> Start with 19 included seeds. After every debugging session where you figure out a fix, add it:</p>
+    <pre><code>from kb.error_oracle import ErrorOracle
+oracle = ErrorOracle(store_dir='kb_store/')
+oracle.learn("exact MATLAB error text", "what fixed it")</code></pre>
+    <p>Over time the KB accumulates your team's collective debugging knowledge — each error you solve once is never manually re-researched again.</p>
+  </div>
 
   <div class="before-after">
     <div>
@@ -1420,11 +1459,16 @@ oracle.learn(
 print(f"Oracle now has {oracle.count()} entries")
 EOF</code></pre>
 
-  <h3>Included PMSM FOC seeds (11 pairs)</h3>
-  <p>The 11 seeded error→fix pairs cover the most common IPMSM FOC simulation failures: non-finite derivatives, algebraic loop with current sensor, variable initialization conflict, rate transition mismatch, singular matrix (RCOND), step-size-too-small, flux init conflict, undefined workspace variable, plus 3 real-world MATLAB warning variants added from live validation (exact phrasing from MATLAB R2025a command window).</p>
+  <h3>Included seeds (19 pairs) — sourced from two real model builds</h3>
+  <p>Seeds come from two sources: <strong>11 pairs</strong> hand-crafted before the first PMSM FOC model build (common Simscape failure modes), and <strong>8 pairs</strong> added during the PMSM_FOC_Proxy_Test build session as errors were encountered and solved live.</p>
+
+  <p>The 8 build-session seeds cover errors that aren't in any textbook: wrong electrical frequency (ω vs ωe = p×ω), wrong PID IC parameter name, set_param argument count, simscape.addConnection port type mismatch, PMSM velocity source IC conflict, and MATLAB chained array indexing syntax. All were fired and validated during a single 2-hour Simulink MCP session — the oracle fired 15 times and saved an estimated 30 minutes of debugging.</p>
+
+  <p><strong>All 19 seed categories:</strong>
+  non-finite state derivatives • algebraic loop with PI feedback • variable initialization conflict • rate transition auto-insertion • singular matrix / RCOND • step-size-too-small • flux linkage initialization • undefined workspace variable • wrong PID parameter name (InitialConditionForOutput → InitialConditionForIntegrator) • electrical vs mechanical angular frequency (ωe = p×ω) • velocity source IC conflict with PMSM • invalid block path when wiring • set_param wrong argument count • simscape.addConnection port type mismatch • "Matrix is singular to working precision" (real MATLAB phrasing variant) • imaginary parts ignored warning • unconnected output port warning</p>
 
   <div class="callout">
-    <p><strong>The oracle grows over time.</strong> Each <code>oracle.learn()</code> call appends to <code>kb_store/oracle_vectors.npz</code>. The store persists across sessions. Vectors are loaded lazily — startup time is unaffected until the first error occurs.</p>
+    <p><strong>The oracle grows with use.</strong> Each <code>oracle.learn()</code> call appends to <code>kb_store/errors.json</code> + <code>errors.npy</code>. The store persists across sessions. Vectors are loaded lazily — startup time is unaffected until the first error/warning occurs in a session.</p>
   </div>
 </section>
 
