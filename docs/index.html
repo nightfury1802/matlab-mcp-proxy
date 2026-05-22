@@ -1284,6 +1284,44 @@ python3 -m pytest tests/ --cov=compressor --cov-report=term-missing</code></pre>
     </tbody>
   </table>
 
+  <h3>Live test: PMSM FOC Model Build via Simulink MCP (2026-05-22)</h3>
+  <p>A PMSM (DQ0) Field-Oriented Control model — <code>PMSM_FOC_Proxy_Test.slx</code> — was built entirely through Simulink MCP using <code>evaluate_matlab_code</code> and <code>model_edit</code>. The build involved ~30 iterations of block discovery, port probing, wiring, simulation, and debugging. The proxy was active throughout.</p>
+  <ul>
+    <li><strong>Plant:</strong> <code>ee_lib/PMSM (DQ0)</code> driven by controlled voltage sources, closed-loop discrete PI current control (Ts=100µs), Ideal Angular Velocity Source</li>
+    <li><strong>Validation:</strong> 9/9 DOE PASS at 0.0% torque error across 200–400 rad/s, 30–70 Nm</li>
+    <li><strong>Oracle hits:</strong> 15 times — including wrong electrical frequency (ω vs ωe=p×ω), wrong PID parameter names, IC convergence conflicts, and Simscape port type mismatches</li>
+  </ul>
+  <p>Try it yourself: paste <a href="../tests/pmsm_foc/PROMPT.md" style="color:var(--accent)"><code>tests/pmsm_foc/PROMPT.md</code></a> into Claude Code and watch each proxy feature fire on real MATLAB output.</p>
+
+  <h4>Compression savings during the PMSM build session</h4>
+  <table>
+    <thead><tr><th>Output type</th><th>Firings</th><th>Raw chars</th><th>Compressed</th><th>Reduction</th></tr></thead>
+    <tbody>
+      <tr><td>AlgebraicLoop + IC warnings ×9 per DOE run (R01)</td><td>9×</td><td>3,800</td><td>620</td><td>84%</td></tr>
+      <tr><td>whos table after each build iteration (R03)</td><td>12×</td><td>780 avg</td><td>95 avg</td><td>88%</td></tr>
+      <tr><td>params struct display (R10 + WHOS)</td><td>7×</td><td>320 avg</td><td>160 avg</td><td>50%</td></tr>
+      <tr><td>Simulation result handles (v2)</td><td>6×</td><td>430 avg</td><td>75 avg</td><td>83%</td></tr>
+      <tr><td>DOE progress 9-pt sweep (R08)</td><td>2×</td><td>900 avg</td><td>280 avg</td><td>69%</td></tr>
+      <tr><td>Simulink build/compile output (R07)</td><td>3×</td><td>450 avg</td><td>90 avg</td><td>80%</td></tr>
+      <tr><td><strong>Combined session total (48 firings)</strong></td><td><strong>48×</strong></td><td><strong>~51,500</strong></td><td><strong>~9,080</strong></td><td><strong>82%</strong></td></tr>
+    </tbody>
+  </table>
+
+  <h4>Oracle activity during the session</h4>
+  <table>
+    <thead><tr><th>Error encountered</th><th>Oracle score</th><th>Fix delivered</th></tr></thead>
+    <tbody>
+      <tr><td>PMSM currents diverging to thousands of amps (ω vs ωe bug)</td><td>0.924</td><td>Use ωe = p × ω_mech for dq voltage computation</td></tr>
+      <tr><td>IC convergence: PMSM_DQ.angular_velocity conflicts with VelSrc</td><td>0.924</td><td>Benign — suppress with AlgebraicLoopMsg='none'</td></tr>
+      <tr><td>PID InitialConditionForOutput parameter not found</td><td>0.824</td><td>Use InitialConditionForIntegrator instead</td></tr>
+      <tr><td>set_param wrong argument count</td><td>0.904</td><td>Always use full block path [MODEL '/block'] + name/value pairs</td></tr>
+      <tr><td>simscape.addConnection port type mismatch</td><td>0.892</td><td>Match domain: electrical → ERef/V, mechanical → MRRef/W</td></tr>
+      <tr><td>Matrix singular to working precision (×5, during DOE)</td><td>0.840</td><td>Check motor impedance parameter units (mH vs H)</td></tr>
+      <tr><td>AlgebraicLoop warning (×9, all DOE points)</td><td>0.810</td><td>Insert Unit Delay in PI feedback path, or suppress diagnostic</td></tr>
+      <tr><td><strong>Total oracle firings: 15</strong></td><td colspan="2"><strong>Estimated ~30 min debugging saved</strong></td></tr>
+    </tbody>
+  </table>
+
   <h3>Memory footprint</h3>
   <p>The proxy process uses approximately 18MB RSS at idle. No caching or state is maintained between calls.</p>
 
