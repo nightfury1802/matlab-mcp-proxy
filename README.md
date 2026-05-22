@@ -166,24 +166,43 @@ Measured during programmatic construction of `PMSM_FOC_Proxy_Test.slx` using Sim
 
 ---
 
-## Oracle error coverage (19 seeds)
+## Oracle — how the KB grows automatically
 
-The included seeds cover these error categories — all sourced from real PMSM FOC and Simscape model builds:
+The oracle starts with 20 seeds (19 hand-crafted + 1 learned automatically in the first build session). It grows every time you use Claude Code with the proxy active.
 
-- Non-finite state derivatives (PMSM singularity, Rs=0)
-- Algebraic loops with discrete PI current feedback
-- Simscape variable initialization conflicts (VelSrc vs PMSM initial state)
-- Rate Transition auto-insertion warnings
-- Singular matrix / RCOND warnings
-- Step-size-too-small solver failures
-- Flux linkage initialization
-- Undefined workspace variables
-- Wrong PID block parameter name (`InitialConditionForOutput` → `InitialConditionForIntegrator`)
-- Electrical vs mechanical angular frequency (ω vs ωe = p×ω) — a common PMSM modelling bug
-- `set_param` wrong argument count
-- `simscape.addConnection` port type mismatches (mechanical vs electrical)
+### How it works
 
-To see the full oracle reference and detailed before/after examples, open **[`docs/index.html`](docs/index.html)**.
+```
+During session:
+  proxy sees ERROR/WARNING → oracle has no match → logs to kb_store/pending_errors.jsonl
+
+At session end (Stop hook fires automatically):
+  kb/auto_learn.py reads pending_errors.jsonl
+    ├── finds each error in the session log
+    ├── locates Claude's fix explanation in the next assistant message
+    ├── validates the fix worked (subsequent MATLAB call succeeded)
+    └── calls oracle.learn(error, fix)  →  KB grows permanently
+```
+
+The Stop hook is already wired in `~/.claude/settings.json`. Nothing to configure — it runs silently at the end of every Claude Code session.
+
+### Manual option
+
+If you want to add a fix immediately without waiting for session end:
+
+```bash
+python3 kb/learn.py "exact MATLAB error text" "what fixed it"
+```
+
+### Initial seeds (20 pairs)
+
+Covers: non-finite derivatives · algebraic loops · variable init conflicts · rate transitions · RCOND warnings · step-size-too-small · flux linkage init · undefined workspace vars · wrong PID parameter names · ωe = p×ω bug · `set_param` arg count · `simscape.addConnection` port type mismatches · double-connected ports · and more.
+
+```bash
+python3 tests/pmsm_foc/seed_oracle.py   # reload included seeds if needed
+```
+
+To see the full oracle reference: **[`docs/index.html`](docs/index.html)**
 
 ---
 
@@ -226,7 +245,7 @@ bash install.sh --uninstall  # restore direct connections
 ### Seed the oracle
 
 ```bash
-python3 tests/pmsm_foc/seed_oracle.py   # loads 19 PMSM FOC + Simscape seeds
+python3 tests/pmsm_foc/seed_oracle.py   # loads 20 PMSM FOC + Simscape seeds
 ```
 
 ---
@@ -322,7 +341,9 @@ kb/
   embedder.py      — lazy-loaded BAAI/bge-small-en-v1.5 (384-dim)
   error_oracle.py  — Error→Fix vector KB, cosine similarity threshold 0.79
   sim_handles.py   — SimHandle#N context handle store
-kb_store/          — persisted oracle vectors + sim handles (19 seeds)
+  auto_learn.py    — Stop hook: auto-learn from session log at session end
+  learn.py         — Manual CLI: python3 kb/learn.py "error" "fix"
+kb_store/          — persisted oracle vectors + sim handles (20 seeds)
 install.sh         — patches ~/.claude.json for matlab + simulink
 tests/
   test_compressor.py       — 27 rules tests

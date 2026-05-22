@@ -425,7 +425,7 @@ upstream tool_result
     │
     ├── 4. oracle()        ERROR / WARNING only  (~7ms)
     │        BAAI/bge-small-en-v1.5 · 384-dim · cosine &gt;= 0.79
-    │        19 seeds · grows with every debugging session
+    │        20 seeds · grows automatically via Stop hook
     │        [ORACLE (score=0.84): fix description...]
     │
     └── 5. handles()       SIM_RESULT &gt; 300 chars  (~0.6ms)
@@ -442,7 +442,7 @@ reduction: 48-82%  ·  REQUEST path: Claude to upstream UNCHANGED
     <div class="callout" style="margin:0;border-left:3px solid var(--accent)">
       <p><strong>🔍 Error→Fix Debugging Oracle</strong> — the flagship feature</p>
       <p>Every MATLAB warning or error is embedded (bge-small-en-v1.5, 384-dim) and matched against a growing KB of known Simscape errors and fixes. When similarity ≥ 0.79 a <code>[ORACLE: fix hint]</code> is prepended — so Claude sees the fix alongside the problem, without you manually re-researching it.</p>
-      <p>Starts with 19 seeds covering PMSM FOC + Simscape modelling errors. <strong>Grows with every debugging session</strong> via <code>oracle.learn(error, fix)</code>.</p>
+      <p>Starts with 20 seeds. <strong>Grows automatically</strong> — the Stop hook runs <code>kb/auto_learn.py</code> at session end, pairing unmatched errors with Claude's fix explanations from the session log. No manual steps.</p>
       <p><a href="#oracle">Full oracle docs →</a></p>
     </div>
 
@@ -1481,31 +1481,33 @@ Warning: Matrix is singular to working precision.  [×5]</pre>
     </div>
   </div>
 
-  <h3>Seeding the oracle</h3>
-  <pre><code># Seed with 11 PMSM FOC errors (included in repo)
-python3 tests/pmsm_foc/seed_oracle.py
+  <h3>How the KB grows — automatic (Option B, default)</h3>
+  <p>No manual steps needed. The proxy and Stop hook work together automatically:</p>
+  <ol>
+    <li><strong>During session:</strong> every ERROR/WARNING the oracle doesn't recognise is logged to <code>kb_store/pending_errors.jsonl</code></li>
+    <li><strong>At session end:</strong> the Claude Code Stop hook runs <code>kb/auto_learn.py</code>, which reads the session log, pairs each unmatched error with Claude's fix explanation, validates the fix worked (checks a subsequent MATLAB call succeeded), then calls <code>oracle.learn()</code></li>
+    <li><strong>Next session:</strong> oracle now recognises the error and prepends the hint immediately</li>
+  </ol>
 
-# Learn a new error after a debugging session
-python3 - &lt;&lt; 'EOF'
-from kb.error_oracle import ErrorOracle
-oracle = ErrorOracle(store_dir='kb_store/')
-oracle.learn(
-    "Paste the exact MATLAB error text here",
-    "What fixed it — solver settings, parameter values, block changes"
-)
-print(f"Oracle now has {oracle.count()} entries")
-EOF</code></pre>
+  <div class="callout" style="border-left:3px solid var(--accent)">
+    <p><strong>This is already configured.</strong> The Stop hook in <code>~/.claude/settings.json</code> runs <code>auto_learn.py</code> at the end of every session. The KB grows silently with no user action required.</p>
+  </div>
 
-  <h3>Included seeds (19 pairs) — sourced from two real model builds</h3>
-  <p>Seeds come from two sources: <strong>11 pairs</strong> hand-crafted before the first PMSM FOC model build (common Simscape failure modes), and <strong>8 pairs</strong> added during the PMSM_FOC_Proxy_Test build session as errors were encountered and solved live.</p>
+  <h3>Manual option (Option A)</h3>
+  <p>Add a fix immediately without waiting for session end:</p>
+  <pre><code>python3 kb/learn.py "exact MATLAB error text" "what fixed it"
+# or interactively:
+python3 kb/learn.py</code></pre>
 
-  <p>The 8 build-session seeds cover errors that aren't in any textbook: wrong electrical frequency (ω vs ωe = p×ω), wrong PID IC parameter name, set_param argument count, simscape.addConnection port type mismatch, PMSM velocity source IC conflict, and MATLAB chained array indexing syntax. All were fired and validated during a single 2-hour Simulink MCP session — the oracle fired 15 times and saved an estimated 30 minutes of debugging.</p>
+  <h3>Initial seeds (20 pairs)</h3>
+  <p>Seeds come from three sources: <strong>11 pairs</strong> hand-crafted for common IPMSM FOC failures, <strong>8 pairs</strong> collected live during the PMSM_FOC_Proxy_Test build session, and <strong>1 pair</strong> auto-learned by the Stop hook at the end of that same session — proving the auto-learn pipeline works.</p>
+  <p>Reload included seeds at any time: <code>python3 tests/pmsm_foc/seed_oracle.py</code></p>
 
-  <p><strong>All 19 seed categories:</strong>
-  non-finite state derivatives • algebraic loop with PI feedback • variable initialization conflict • rate transition auto-insertion • singular matrix / RCOND • step-size-too-small • flux linkage initialization • undefined workspace variable • wrong PID parameter name (InitialConditionForOutput → InitialConditionForIntegrator) • electrical vs mechanical angular frequency (ωe = p×ω) • velocity source IC conflict with PMSM • invalid block path when wiring • set_param wrong argument count • simscape.addConnection port type mismatch • "Matrix is singular to working precision" (real MATLAB phrasing variant) • imaginary parts ignored warning • unconnected output port warning</p>
+  <p><strong>All 20 seed categories:</strong>
+  non-finite state derivatives • algebraic loop with PI feedback • variable initialization conflict • rate transition auto-insertion • singular matrix / RCOND • step-size-too-small • flux linkage initialization • undefined workspace variable • wrong PID parameter name (InitialConditionForOutput → InitialConditionForIntegrator) • ωe = p×ω frequency bug • velocity source IC conflict • invalid block path when wiring • set_param argument count • simscape.addConnection port type mismatch • singular to working precision (exact MATLAB phrasing) • imaginary parts warning • unconnected port warning • double-connected port (auto-learned)</p>
 
   <div class="callout">
-    <p><strong>The oracle grows with use.</strong> Each <code>oracle.learn()</code> call appends to <code>kb_store/errors.json</code> + <code>errors.npy</code>. The store persists across sessions. Vectors are loaded lazily — startup time is unaffected until the first error/warning occurs in a session.</p>
+    <p>The store persists across sessions (<code>kb_store/errors.json</code> + <code>errors.npy</code>). Vectors are loaded lazily — startup time is unaffected until the first error/warning occurs.</p>
   </div>
 </section>
 

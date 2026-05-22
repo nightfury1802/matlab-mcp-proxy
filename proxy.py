@@ -13,7 +13,7 @@ Usage:
   python3 proxy.py --upstream /path/to/server [server-args...]
   python3 proxy.py --bypass --upstream /path/to/server [...]
 """
-import sys, os, json, asyncio, argparse, logging
+import sys, os, json, asyncio, argparse, logging, time
 import os as _os
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -41,6 +41,24 @@ def _get_oracle():
     return _oracle
 
 
+# ── oracle auto-logging ───────────────────────────────────────────────────────
+
+def _log_unseen_error(error_text: str) -> None:
+    """Log errors the oracle didn't recognise to kb_store/pending_errors.jsonl.
+    Claude reads this file after fixing an error and calls kb/learn.py to teach
+    the oracle — making KB growth automatic without manual intervention.
+    """
+    try:
+        store = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'kb_store')
+        path  = _os.path.join(store, 'pending_errors.jsonl')
+        entry = json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                            "error": error_text.strip()[:800]})
+        with open(path, 'a') as f:
+            f.write(entry + '\n')
+    except Exception:
+        pass   # never crash the proxy over logging
+
+
 # ── compression ──────────────────────────────────────────────────────────────
 
 def _compress_response(msg: dict, bypass: bool) -> dict:
@@ -62,6 +80,9 @@ def _compress_response(msg: dict, bypass: bool) -> dict:
                     hint = oracle.format_hint(original)
                     if hint:
                         compressed = hint + "\n" + compressed
+                    else:
+                        # No match — log for auto-learning after fix is found
+                        _log_unseen_error(original)
                 elif otype == OutputType.SIM_RESULT and len(original) > 300:
                     hs = _get_handle_store()
                     handle_id, summary = hs.store(original)
