@@ -14,11 +14,21 @@ Usage:
   python3 proxy.py --bypass --upstream /path/to/server [...]
 """
 import sys, os, json, asyncio, argparse, logging
+import os as _os
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from compressor import compress
 
 log = logging.getLogger("matlab-proxy")
+
+_oracle = None
+def _get_oracle():
+    global _oracle
+    if _oracle is None:
+        from kb.error_oracle import ErrorOracle
+        store = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'kb_store')
+        _oracle = ErrorOracle(store_dir=store)
+    return _oracle
 
 
 # ── compression ──────────────────────────────────────────────────────────────
@@ -28,13 +38,20 @@ def _compress_response(msg: dict, bypass: bool) -> dict:
     if bypass:
         return msg
     try:
+        from router import route, OutputType
         content = msg.get("result", {}).get("content", [])
         if not isinstance(content, list):
             return msg
         for item in content:
             if isinstance(item, dict) and item.get("type") == "text":
                 original = item["text"]
-                compressed = compress(original)
+                compressed, otype = route(original)
+                # Append oracle hint for errors/warnings
+                if otype in (OutputType.ERROR, OutputType.WARNING):
+                    oracle = _get_oracle()
+                    hint = oracle.format_hint(original)
+                    if hint:
+                        compressed = hint + "\n" + compressed
                 if compressed != original:
                     pct = (1 - len(compressed) / len(original)) * 100
                     log.debug(f"Compressed {len(original)}→{len(compressed)} chars ({pct:.0f}%)")

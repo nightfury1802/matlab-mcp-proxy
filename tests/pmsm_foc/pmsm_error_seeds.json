@@ -1,0 +1,34 @@
+[
+  {
+    "error": "Derivative of state 'Motor/id' is not finite. At time 0.0 s, the derivative is Inf. Singularity likely.",
+    "fix": "Set solver absolute tolerance to 1e-6. Verify Rs > 0 (stator resistance) and Ld > 0 (d-axis inductance) in motor parameters. Common cause: zero resistance or inductance in parameter struct."
+  },
+  {
+    "error": "Algebraic loop detected involving block 'FOC/CurrentLoop/Integrator'. The model contains a direct feedthrough loop.",
+    "fix": "Insert a Unit Delay (sample time = Ts_control) or Memory block in the feedback path from Integrator output back to its input. Alternatively, set 'Minimise algebraic loop' in model Configuration Parameters > Solver."
+  },
+  {
+    "error": "Variable 'PMSM/omega_r' could not be initialized. Target value = 0, priority = high. Initialization conflict.",
+    "fix": "Change the initialization priority for omega_r to 'none' in the Simscape variable editor, or add an Angular Velocity Source block with IC = 0 to set the initial condition explicitly."
+  },
+  {
+    "error": "Warning: 'PMSM_FOC/Inverter/Phase_A' has sample time Ts and 'PMSM_FOC/Motor/Phase_A' is continuous. A Rate Transition block was automatically inserted.",
+    "fix": "Add an explicit Rate Transition block between the discrete inverter subsystem (Ts) and the continuous motor model. Set transition mode to 'Ensure deterministic transfer (minimum delay)'."
+  },
+  {
+    "error": "Matrix is close to singular or badly scaled. Results may be inaccurate. RCOND = 2.3e-17.",
+    "fix": "Check motor impedance parameters: if Ld/Lq are in mH but code expects H, scale by 1e-3. Also check that the simulation time step is not larger than Ld/Rs (the electrical time constant)."
+  },
+  {
+    "error": "Error using sim. The simulation failed because of a step-size-too-small error. The last successful time is 0.000124. The error weights are 1e+08.",
+    "fix": "Increase RelTol to 1e-4 and AbsTol to 1e-6. If using ode23t, switch to ode15s. Check for near-discontinuities in the reference speed profile or sudden torque steps at t=0."
+  },
+  {
+    "error": "The following variables could not be initialized: model/PMSM/Flux_d: target value = 0.1012, priority = high. model/PMSM/Flux_q: target value = 0, priority = high.",
+    "fix": "Set flux initialization priority to 'none' and let the solver find the steady state, OR pre-compute the initial d-axis flux as lambda_d0 = Ld*id0 + lambda_PM and set it explicitly."
+  },
+  {
+    "error": "Error in model: Undefined variable 'params' in the MATLAB workspace. The block 'MotorParams' requires this variable to be defined before simulation.",
+    "fix": "Run the initialization script before simulating. Confirm 'params' struct is in the base workspace with whos. Set the model PreLoadFcn to call the initialization script automatically."
+  }
+]
