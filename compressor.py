@@ -396,9 +396,10 @@ RULES = [
 ]
 
 def compress(text: str) -> str:
-    for _, rule in RULES:
-        text = rule(text)
-    return text
+    """Entry point. Routes to type-specific pipeline via router.py."""
+    from router import route
+    compressed, _ = route(text)
+    return compressed
 
 def ratio(original: str, compressed: str) -> str:
     o, c = len(original), len(compressed)
