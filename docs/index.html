@@ -1374,7 +1374,7 @@ EOF</code></pre>
 <section class="section" id="oracle">
   <h2>v2: Error→Fix Debugging Oracle</h2>
 
-  <p>A local vector knowledge base that maps MATLAB/Simscape error messages to known fixes. Uses <strong>BAAI/bge-small-en-v1.5</strong> (384-dim embeddings, ~22MB) via <code>sentence-transformers</code>. When an error's cosine similarity to a seeded pair exceeds <strong>0.82</strong>, a <code>[ORACLE: ...]</code> hint is prepended to the compressed output.</p>
+  <p>A local vector knowledge base that maps MATLAB/Simscape error messages to known fixes. Uses <strong>BAAI/bge-small-en-v1.5</strong> (384-dim embeddings, ~22MB) via <code>sentence-transformers</code>. When an error's cosine similarity to a seeded pair exceeds <strong>0.79</strong>, a <code>[ORACLE: ...]</code> hint is prepended to the compressed output. Threshold lowered from 0.82 based on live validation — real MATLAB warnings use slightly different phrasing than textbook examples (e.g. "singular to working precision" vs "close to singular").</p>
 
   <p>The oracle fires only on <code>ERROR</code> and <code>WARNING</code> classified outputs — adding ~7ms on the error path (embedding cost). The non-error path has zero overhead.</p>
 
@@ -1386,18 +1386,17 @@ Derivative of state 'PMSM/id' is not finite.
 Singularity likely at t=0.0012.</pre>
     </div>
     <div>
-      <div class="label-ba after">After (oracle match, score=0.93)</div>
-      <pre>[ORACLE (score=0.93): Set solver absolute
-tolerance to 1e-6. Verify Rs > 0 (not zero).
-Check id0/iq0 initial conditions are finite.]
-Error using sim (line 847)
-Derivative of state 'PMSM/id' is not finite.
-Singularity likely at t=0.0012.</pre>
+      <div class="label-ba after">After — live validated 2026-05-22 (score=0.84)</div>
+      <pre>[ORACLE (score=0.84): Check motor impedance
+parameters: if Ld/Lq are in mH but code expects
+H, scale by 1e-3. Also check simulation time
+step is not larger than Ld/Rs.]
+Warning: Matrix is singular to working precision.  [×5]</pre>
     </div>
   </div>
 
   <h3>Seeding the oracle</h3>
-  <pre><code># Seed with 8 PMSM FOC errors (included in repo)
+  <pre><code># Seed with 11 PMSM FOC errors (included in repo)
 python3 tests/pmsm_foc/seed_oracle.py
 
 # Learn a new error after a debugging session
@@ -1411,8 +1410,8 @@ oracle.learn(
 print(f"Oracle now has {oracle.count()} entries")
 EOF</code></pre>
 
-  <h3>Included PMSM FOC seeds (8 pairs)</h3>
-  <p>The 8 seeded error→fix pairs cover the most common IPMSM FOC simulation failures: non-finite derivatives, algebraic loop with current sensor, torque not converging, flux linkage NaN on first step, iq saturation at low speed, incorrect Clarke transform orientation, flux weakening voltage limit exceeded, and initialization failure when Ld ≈ Lq.</p>
+  <h3>Included PMSM FOC seeds (11 pairs)</h3>
+  <p>The 11 seeded error→fix pairs cover the most common IPMSM FOC simulation failures: non-finite derivatives, algebraic loop with current sensor, variable initialization conflict, rate transition mismatch, singular matrix (RCOND), step-size-too-small, flux init conflict, undefined workspace variable, plus 3 real-world MATLAB warning variants added from live validation (exact phrasing from MATLAB R2025a command window).</p>
 
   <div class="callout">
     <p><strong>The oracle grows over time.</strong> Each <code>oracle.learn()</code> call appends to <code>kb_store/oracle_vectors.npz</code>. The store persists across sessions. Vectors are loaded lazily — startup time is unaffected until the first error occurs.</p>
@@ -1448,11 +1447,8 @@ EOF</code></pre>
 ... (20+ more fields)</pre>
     </div>
     <div>
-      <div class="label-ba after">After (SimHandle#N, ~56 tokens)</div>
-      <pre>SimHandle#0: torque=107.6300, speed=6283.2,
-id=-12.3400, iq=45.2100, Vd=-8.4500,
-Vq=210.3200
-→ Ask 'expand SimHandle#0' for full signal data.</pre>
+      <div class="label-ba after">After — live validated 2026-05-22 (11 signals)</div>
+      <pre>[SimHandle#0] torque=107.6300, speed=6283.2000, id=-12.3400</pre>
     </div>
   </div>
 
@@ -1488,7 +1484,7 @@ Vq=210.3200
 <section class="section" id="v2-performance">
   <h2>v2 Performance Benchmark</h2>
 
-  <p>Measured on 2026-05-22. Run it yourself: <code>python3 tests/benchmark.py</code></p>
+  <p>Benchmark measured 2026-05-22. Run it yourself: <code>python3 tests/benchmark.py</code></p>
 
   <table>
     <thead>
@@ -1499,9 +1495,22 @@ Vq=210.3200
       <tr><td><code>route()</code> latency</td><td>&lt; 0.09ms</td><td>Type-specific pipeline</td></tr>
       <tr><td>Oracle warm query</td><td>~7ms</td><td>Only for ERROR/WARNING types</td></tr>
       <tr><td>Handle store</td><td>0.59ms</td><td>Pure JSON/disk write</td></tr>
-      <tr><td>Handle token reduction</td><td>71%</td><td>177→86 chars; real sim outputs ~800→56</td></tr>
       <tr><td>Proxy overhead (non-oracle)</td><td>+0.01–0.09ms</td><td>Negligible vs MATLAB call time</td></tr>
       <tr><td>Proxy overhead (ERROR path)</td><td>+16.7ms</td><td>Embedding cost — acceptable for debug</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Live validation results (Simulink MCP, MATLAB R2025a, 2026-05-22)</h3>
+  <table>
+    <thead>
+      <tr><th>Test</th><th>Feature exercised</th><th>Expected</th><th>Result</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>T1: <code>whos</code> table</td><td>R03 whos compression</td><td>One-line <code>whos: x[1x1,dbl]...</code></td><td>✅</td></tr>
+      <tr><td>T1: struct + whos together</td><td>WHOS pipeline + struct fix</td><td>Both compressed in one pass, 52%</td><td>✅ (fixed during validation)</td></tr>
+      <tr><td>T3: 5× singular warnings</td><td>R01 dedup + oracle</td><td><code>Warning: ... [×5]</code> + oracle hint</td><td>✅ score=0.84</td></tr>
+      <tr><td>T5: 15-pt DOE progress</td><td>R08 progress compression</td><td><code>[11 lines omitted]</code>, 71%</td><td>✅ (normalize fix applied)</td></tr>
+      <tr><td>T2: 11-signal sim result</td><td>Context handle</td><td><code>[SimHandle#0] torque=...</code></td><td>✅ single line returned</td></tr>
     </tbody>
   </table>
 

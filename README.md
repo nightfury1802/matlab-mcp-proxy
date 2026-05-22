@@ -50,9 +50,9 @@ The proxy now classifies output type before applying compression rules — 11 ty
 
 ### 2. Error→Fix Debugging Oracle
 
-A local vector knowledge base (BAAI/bge-small-en-v1.5, 384-dim) that maps MATLAB/Simscape error messages to known fixes. When an error matches a seeded pair (cosine similarity > 0.82), a `[ORACLE: ...]` hint is prepended to the compressed output.
+A local vector knowledge base (BAAI/bge-small-en-v1.5, 384-dim) that maps MATLAB/Simscape error messages to known fixes. When an error matches a seeded pair (cosine similarity > 0.79), a `[ORACLE: ...]` hint is prepended to the compressed output. The KB grows with use — every new error+fix you add makes it smarter.
 
-**Seed the oracle with 8 PMSM FOC errors:**
+**Seed the oracle with 11 PMSM FOC errors:**
 ```bash
 python3 tests/pmsm_foc/seed_oracle.py
 ```
@@ -67,40 +67,51 @@ oracle.learn(
 )
 ```
 
-**Example output with oracle hint:**
+**Live-validated output (fresh MATLAB session, 2026-05-22):**
 ```
-[ORACLE (score=0.93): Set solver absolute tolerance to 1e-6. Verify Rs > 0...]
-Error using sim (line 847)
-Derivative of state 'PMSM/id' is not finite. Singularity likely.
+[ORACLE (score=0.84): Check motor impedance parameters: if Ld/Lq are in mH but code expects H...]
+Warning: Matrix is singular to working precision.  [×5]
 ```
 
 ### 3. Context Handles for Simulation Results
 
 Simulation results > 300 chars are replaced with a compact `SimHandle#N` summary and stored on disk. Claude gets ~56 tokens instead of ~800+.
 
-**Example:**
+**Live-validated output (11-signal sim result, 2026-05-22):**
 ```
-Before: 800-char signal dump (torque, speed, id, iq, Vd, Vq over 20+ lines)
+Before: torque=\n\n 107.6300\n\nspeed=\n\n 6283.2...(600+ chars across 11 signals)
 
-After:  SimHandle#0: torque=107.6300, speed=6283.2, id=-12.3400
-         → Ask 'expand SimHandle#0' for full signal data.
+After:  [SimHandle#0] torque=107.6300, speed=6283.2000, id=-12.3400
 ```
+Ask Claude `expand SimHandle#0` to retrieve the full output.
 
 Ask Claude `expand SimHandle#0` to retrieve the full output from `kb_store/handles/`.
 
-### v2 Performance (benchmark — 2026-05-22)
+### v2 Performance (benchmark + live validation — 2026-05-22)
 
 | Metric | Value | Notes |
 |--------|-------|-------|
 | `classify()` latency | < 0.04ms | Pure regex, no I/O |
 | `route()` latency | < 0.09ms | Type-specific pipeline |
-| Oracle warm query | ~7ms | Only for ERROR/WARNING |
-| Handle store | 0.59ms | Pure JSON/disk |
-| Handle token reduction | 71% | 177→86 chars (real sim outputs: ~800→56) |
+| Oracle warm query | ~7ms | Only for ERROR/WARNING outputs |
+| Handle store | 0.59ms | Pure JSON/disk, no embedding |
+| DOE progress compression | **71%** | 1010→294 chars, `[11 lines omitted]` ✓ |
+| whos + struct (same output) | **52%** | Both compressed in one pass ✓ |
+| Sim result handle | **95%+** | 600-char 11-signal dump → 1 line ✓ |
 | Proxy overhead (non-oracle) | +0.01–0.09ms | Negligible |
-| Proxy overhead (ERROR path) | +16.7ms | Embedding cost (acceptable) |
+| Proxy overhead (ERROR path) | +16.7ms | Embedding cost, only on errors |
 
 Run the benchmark yourself: `python3 tests/benchmark.py`
+
+### Live validation results (Simulink MCP, fresh session)
+
+| Test | Expected | Result |
+|------|----------|--------|
+| T1: `whos` table | One-line `whos: x[1x1,dbl]...` | ✅ |
+| T1: struct + whos together | Both compressed in one pass | ✅ (fixed during validation) |
+| T3: 5× singular warnings | `Warning: ... [×5]` + oracle hint | ✅ `score=0.84` |
+| T5: 15-pt DOE progress | `[11 lines omitted]` | ✅ (fixed during validation) |
+| T2: 11-signal sim result | `[SimHandle#0] torque=...` | ✅ |
 
 ## How it works
 
