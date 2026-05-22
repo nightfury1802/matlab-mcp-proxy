@@ -68,7 +68,12 @@ class ErrorOracle:
             return None
         from kb.embedder import embed
         q = embed(self._normalise(error_text))
-        scores = self._vectors @ q      # dot product = cosine similarity (unit vecs)
+        import warnings as _w
+        vecs = np.nan_to_num(self._vectors, nan=0.0, posinf=0.0, neginf=0.0)
+        with _w.catch_warnings():
+            _w.simplefilter("ignore")
+            scores = vecs @ q   # dot product = cosine similarity for unit vecs
+        scores = np.nan_to_num(scores, nan=0.0)
         best_idx = int(np.argmax(scores))
         best_score = float(scores[best_idx])
         if best_score < THRESHOLD:
