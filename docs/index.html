@@ -390,54 +390,50 @@
 <pre style="font-size:0.82em;line-height:1.6">
 Claude Code  (~/.claude.json)
 │
-├─── matlab proxy (python3 proxy.py)
-│         │  Content-Length framing (LSP-style JSON-RPC)
-│         ▼
-│    matlab-mcp-core-server --initialize-matlab-on-startup=true
-│         │  starts MATLAB eagerly at Claude launch (~15-20s)
-│         ▼
-│    ┌────────────────── MATLAB R2025a ───────────────────┐
-│    │  evaluate_matlab_code  run_matlab_file  run_test   │◄── shared session
-│    └────────────────────────────────────────────────────┘
-│         ▲
-│    matlab-mcp-core-server --matlab-session-mode=existing
-│         │  polls for session, attaches within 30s window
-└─── simulink proxy (python3 proxy.py)
-          + --extension-file=tools/tools.json
-            model_edit / model_overview / model_read / model_test
+├── matlab proxy (python3 proxy.py)
+│       │  Content-Length framing (LSP-style JSON-RPC)
+│       ▼
+│   matlab-mcp-core-server --initialize-matlab-on-startup=true
+│       │  starts MATLAB eagerly at Claude launch (~15-20s)
+│       ▼
+│   [ MATLAB R2025a  ·  evaluate_matlab_code  ·  run_matlab_file ]  shared session
+│       ▲
+│   matlab-mcp-core-server --matlab-session-mode=existing
+│       │  polls for session, attaches within 30s window
+└── simulink proxy (python3 proxy.py)
+        + model_edit / model_overview / model_read / model_test
 
-════════════════════ RESPONSE PIPELINE ════════════════════
+─────────────── RESPONSE PIPELINE ──────────────────────
 
 upstream tool_result
-     │
-     ├─ 1. strip_html()          Remove MATLAB IDE hyperlinks
-     │
-     ├─ 2. router.classify()     Detect output type (11 types)
-     │       WHOS  ERROR  WARNING  TEST_RUN  BUILD  SIM_RESULT
-     │       PROGRESS  STRUCT  ARRAY  MODEL_QUERY  PLAIN
-     │
-     ├─ 3. type-specific pipeline  14 compression rules
-     │       R01 repeated warnings    [~59%]   R08 progress lines [~79%]
-     │       R02 deep stack traces    [~40%]   R09 test output    [~62%]
-     │       R03 whos tables          [~74%]   R10 struct display [~52%]
-     │       R04 large arrays         [~85%]   R11 sim boilerplate[always]
-     │       R05 block paths          [varies] R12 caused-by dedup[~58%]
-     │       R06 block lists          [~63%]   R13 init-cond lists[varies]
-     │       R07 build output         [~56%]   R14 model_read paths[~36%]
-     │
-     ├─ 4. Error→Fix Oracle   (ERROR/WARNING only, ~7ms)
-     │       BAAI/bge-small-en-v1.5  384-dim  threshold 0.79
-     │       19 seeds  (11 PMSM FOC + 8 Simscape build errors)
-     │       → prepends [ORACLE (score=0.84): fix hint...]
-     │
-     └─ 5. Context Handles   (SIM_RESULT > 300 chars, ~0.6ms)
-             → [SimHandle#N] torque=107.63, iq=82.35, id=0.0001
-             → full output in kb_store/handles/  (expand on request)
+    │
+    ├── 1. strip_html()    remove MATLAB IDE hyperlinks
+    │
+    ├── 2. classify()      detect one of 11 output types
+    │        WHOS · ERROR · WARNING · TEST_RUN · BUILD
+    │        SIM_RESULT · PROGRESS · STRUCT · ARRAY
+    │        MODEL_QUERY · PLAIN
+    │
+    ├── 3. compress()      14 type-specific rules
+    │        R01 repeated warnings  [~59%]   R08 DOE progress  [~79%]
+    │        R02 stack traces       [~40%]   R09 test output   [~62%]
+    │        R03 whos tables        [~74%]   R10 struct display[~52%]
+    │        R04 large arrays       [~85%]   R11 boilerplate   [always]
+    │        R05 block paths        [varies] R12 caused-by dedup[~58%]
+    │        R06 block lists        [~63%]   R13 init-cond vars[varies]
+    │        R07 build output       [~56%]   R14 model_read    [~36%]
+    │
+    ├── 4. oracle()        ERROR / WARNING only  (~7ms)
+    │        BAAI/bge-small-en-v1.5 · 384-dim · cosine &gt;= 0.79
+    │        19 seeds · grows with every debugging session
+    │        [ORACLE (score=0.84): fix description...]
+    │
+    └── 5. handles()       SIM_RESULT &gt; 300 chars  (~0.6ms)
+             [SimHandle#N] torque=107.63, iq=82.35, id=0.0001
+             full output in kb_store/handles/
 
-overhead: &lt;0.1ms (non-oracle path)  /  +16.7ms (ERROR with embedding)
-reduction: 48–82% depending on output type
-
-REQUEST path: Claude → proxy → upstream UNCHANGED
+overhead: &lt;0.1ms (non-oracle)  /  +16.7ms (ERROR embedding)
+reduction: 48-82%  ·  REQUEST path: Claude to upstream UNCHANGED
 </pre>
 
   <!-- ── Key features callouts ─────────────────────────────── -->

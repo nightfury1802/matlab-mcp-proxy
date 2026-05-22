@@ -10,42 +10,21 @@ A transparent MCP stdio proxy that compresses verbose MATLAB®, Simulink®, and 
 
 ```
 Claude Code
-     │  tool_result (MCP JSON-RPC)
-     ▼
-┌─────────────────────────────── proxy.py ───────────────────────────────────┐
-│                                                                             │
-│  1. strip_html()          Remove MATLAB IDE hyperlinks                      │
-│                                                                             │
-│  2. router.classify()     Detect output type — 11 types:                   │
-│     ┌────────────────────────────────────────────────────────┐             │
-│     │ WHOS  ERROR  WARNING  TEST_RUN  BUILD  SIM_RESULT      │             │
-│     │ PROGRESS  STRUCT  ARRAY  MODEL_QUERY  PLAIN            │             │
-│     └────────────────────────────────────────────────────────┘             │
-│                                                                             │
-│  3. type-specific pipeline  14 compression rules per type:                 │
-│     R01 repeated warnings    R08 progress lines (DOE sweeps)                │
-│     R02 deep stack traces    R09 test runner output                         │
-│     R03 whos tables          R10 struct field display                       │
-│     R04 large arrays         R11 sim error boilerplate                      │
-│     R05 block paths          R12 redundant Caused-By                        │
-│     R06 algebraic loop lists R13 init-condition var lists                   │
-│     R07 build output         R14 model_read block paths                     │
-│                                                                             │
-│  4. Error→Fix Oracle  (ERROR / WARNING only)                                │
-│     kb/error_oracle.py  BAAI/bge-small-en-v1.5  384-dim  threshold 0.79   │
-│     → prepends  [ORACLE (score=0.84): fix description...]                  │
-│     → 19 PMSM FOC + Simscape seeds (grows with every debugging session)    │
-│                                                                             │
-│  5. Context Handles  (SIM_RESULT > 300 chars)                               │
-│     kb/sim_handles.py                                                       │
-│     → replaces 600-char signal dump with  [SimHandle#N] torque=... iq=...  │
-│     → full output stored in kb_store/handles/  •  expand on request        │
-└─────────────────────────────────────────────────────────────────────────────┘
-     │  compressed tool_result
-     ▼
-Claude Code  ←──── matlab-mcp-proxy ────►  matlab-mcp-core-server  ────►  MATLAB R2025a
-                   (compresses + enriches)  (unchanged protocol)
+    │  tool_result (MCP JSON-RPC)
+    ↓
++---[ proxy.py ]------------------------------------+
+|  1. strip HTML       remove IDE hyperlinks        |
+|  2. classify         detect 1 of 11 output types  |
+|  3. compress         apply 14 type-specific rules  |
+|  4. oracle           ERROR/WARNING → fix hint      |
+|  5. handles          SIM_RESULT → SimHandle#N      |
++---------------------------------------------------+
+    │  compressed + enriched result
+    ↓
+Claude Code  ←──  matlab-mcp-proxy  ──►  matlab-mcp-core-server  ──►  MATLAB
 ```
+
+> Detailed pipeline, before/after examples, configuration: **[`docs/index.html`](docs/index.html)**
 
 ---
 
