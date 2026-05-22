@@ -47,12 +47,12 @@ def classify(text: str) -> OutputType:
         return OutputType.TEST_RUN
     if _has(text, r'### Starting build procedure|### Successful completion', re.MULTILINE):
         return OutputType.BUILD
+    if _has(text, r'^Block:\s+\w', re.MULTILINE) or _has(text, r'^Param:\s+', re.MULTILINE):
+        return OutputType.MODEL_QUERY
     if _has(text, r'struct with fields:', re.IGNORECASE):
         return OutputType.STRUCT
     if _has(text, r'DOE point\s+\d+/\d+|^\s*\d+/\d+:', re.MULTILINE):
         return OutputType.PROGRESS
-    if _has(text, r'^Block:\s+\w', re.MULTILINE) or _has(text, r'^Param:\s+', re.MULTILINE):
-        return OutputType.MODEL_QUERY
     if _has(text, r'^\w+ =\n\n(\s+[\d.e+\-]+\n){3,}', re.MULTILINE):
         return OutputType.ARRAY
     if _has(text, r'Simulation complete|Final torque|Final speed', re.MULTILINE):
@@ -69,10 +69,10 @@ _PIPELINES: dict[OutputType, list] = {
                              compress_block_paths],
     OutputType.TEST_RUN:    [compress_test_output],
     OutputType.BUILD:       [compress_build_output],
-    OutputType.SIM_RESULT:  [compress_large_arrays, compress_struct_display],
+    OutputType.SIM_RESULT:  [compress_struct_display],           # arrays handled by ARRAY
     OutputType.PROGRESS:    [compress_progress_lines],
     OutputType.STRUCT:      [compress_struct_display],
-    OutputType.ARRAY:       [compress_large_arrays],
+    OutputType.ARRAY:       [compress_large_arrays, compress_struct_display],  # add struct
     OutputType.MODEL_QUERY: [compress_model_read_paths, compress_block_paths],
     OutputType.PLAIN:       [],
 }

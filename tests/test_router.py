@@ -56,6 +56,16 @@ class TestClassify:
         text = ""
         assert classify(text) == OutputType.PLAIN
 
+    def test_model_query_with_struct_value_not_misclassified(self):
+        """model_read output with struct value must route to MODEL_QUERY, not STRUCT."""
+        text = (
+            "Block: ModelName/Subsystem/Motor\n"
+            "result = \n\n"
+            "  struct with fields:\n\n"
+            "    Ld: 0.00021\n"
+        )
+        assert classify(text) == OutputType.MODEL_QUERY
+
 
 class TestRoute:
     def test_route_returns_type(self):

@@ -378,6 +378,7 @@ def _shorten(path: str) -> str:
 
 
 # ── PIPELINE ─────────────────────────────────────────────────────────────────
+# Legacy: previously iterated by compress(). Now pipeline dispatch is in router.py.
 RULES = [
     ("sim_error_boilerplate", compress_sim_error_boilerplate),
     ("repeated_warnings",     compress_repeated_warnings),
