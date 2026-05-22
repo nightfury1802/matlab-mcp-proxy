@@ -126,43 +126,26 @@ Measured during programmatic construction of `PMSM_FOC_Proxy_Test.slx` using Sim
 
 ---
 
-## Token compression by output type
+## Compression rules (14 total)
 
-| Output type | Reduction |
-|---|---|
-| `whos` variable table | **74%** |
-| Repeated solver warnings | **59–71%** |
-| Large array auto-display | **85%** |
-| Simulink build log | **56%** |
-| DOE progress loop (55 pts) | **79%** |
-| Test runner output | **62%** |
-| Algebraic loop block list | **63%** |
-| `model_read` block paths | **36%** |
-| Deep call stack | **40%** |
-| Struct field display | **32–52%** |
-| Simulation result (context handle) | **71–95%** |
-| **Session average** | **48–82%** |
-
----
-
-## The 14 compression rules
-
-| Rule | What it compresses | Reduction |
+| Output type | Rule | Reduction |
 |---|---|---|
-| R01 | Repeated identical warnings (RCOND, Rate Transition, AlgLoop) | ~59% |
-| R02 | Deep MATLAB call stack traces (>3 frames) | ~40% |
-| R03 | `whos` variable tables | ~74% |
-| R04 | Large numeric array auto-display | ~85% |
-| R05 | Long Simulink block paths in quoted strings | varies |
-| R06 | Algebraic loop block lists (>3 blocks) | ~63% |
-| R07 | Simulink `### Starting/Successful build` output | ~56% |
-| R08 | Repeated `fprintf` progress lines (DOE sweeps, loops) | ~79% |
-| R09 | Test runner pass/fail output | ~62% |
-| R10 | MATLAB struct field display | ~32–52% |
-| R11 | "An error occurred while running the simulation…" boilerplate | always |
-| R12 | Redundant `Caused by:` block (same error as main) | ~58% |
-| R13 | Simscape init-condition variable lists | varies |
-| R14 | Unquoted block paths in `model_read` / `model_overview` output | ~36% |
+| `whos` variable table | R03 | **74%** |
+| Repeated solver warnings | R01 | **59–71%** |
+| Large array auto-display | R04 | **85%** |
+| DOE / loop progress lines | R08 | **79%** |
+| Algebraic loop block list | R06 | **63%** |
+| Test runner output | R09 | **62%** |
+| Simulink build log | R07 | **56%** |
+| Struct field display | R10 | **32–52%** |
+| Deep call stack | R02 | **40%** |
+| `model_read` block paths | R14 | **36%** |
+| Block paths in strings | R05 | varies |
+| Sim error boilerplate | R11 | always |
+| Redundant Caused-By | R12 | ~58% |
+| Init-condition var lists | R13 | varies |
+| Simulation result (context handle) | — | **71–95%** |
+| **Session average** | | **48–82%** |
 
 ---
 
