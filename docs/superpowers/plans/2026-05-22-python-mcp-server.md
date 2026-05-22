@@ -2,11 +2,44 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a pure Python MCP server that replaces `matlab-mcp-core-server` (binary) by connecting directly to MATLAB's official Python Engine API — no binary download, no ports, no external network, fully auditable source.
+**Goal:** Build a pure Python MCP server that replaces `matlab-mcp-core-server` (binary) by connecting directly to MATLAB's official Python Engine API — no binary download, no ports, no external network, fully auditable source — AND integrate every feature from `matlab-mcp-proxy` into a single holistic package.
 
-**Architecture:** A single `server/matlab_mcp.py` entry point implements the MCP JSON-RPC stdio protocol, dispatches tool calls to `server/engine_bridge.py` (manages the `matlab.engine` session), and pipes every response through the existing `router.py → compressor.py → oracle → handles` pipeline already in this repo. The current `proxy.py` continues to work for users who have the binary; the Python server is an additional standalone mode added under `server/`.
+**Architecture:** A single `server/matlab_mcp.py` entry point implements the MCP JSON-RPC stdio protocol, dispatches tool calls to `server/engine_bridge.py` (manages the `matlab.engine` session), and pipes every response through the existing `router.py → compressor.py → oracle → handles` pipeline already in this repo. The current `proxy.py` continues to work for users who have the binary; the Python server is a second standalone mode in the same package. Both modes share the same KB, oracle, compression rules, and auto-learn Stop hook.
 
-**Tech Stack:** Python 3.9+, `matlab.engine` (ships with MATLAB R2014b+, no install beyond MATLAB), `asyncio`, `pytest` with `unittest.mock` for engine mocking. Zero new pip dependencies for the server itself.
+**Tech Stack:** Python 3.9+, `matlab.engine` (ships with MATLAB R2014b+, no install beyond MATLAB), `pytest` with `unittest.mock` for engine mocking. Zero new pip dependencies for the server itself.
+
+---
+
+## The holistic package vision
+
+This is not just a Python port of the binary. It is **one package with two operating modes** — both built on the same compression, intelligence, and KB layers:
+
+```
+matlab-mcp-proxy/   (the package, one repo, one install)
+│
+├── MODE A — Proxy (for users who have the official binary)
+│   └── proxy.py  →  matlab-mcp-core-server binary  →  MATLAB
+│
+├── MODE B — Python Server (no binary, IT-friendly)
+│   └── server/matlab_mcp.py  →  matlab.engine  →  MATLAB
+│
+└── SHARED (both modes use identical pipeline)
+    ├── router.py              Semantic mode routing (11 types)
+    ├── compressor.py          14 compression rules
+    ├── kb/
+    │   ├── error_oracle.py    Error→Fix vector KB (cosine sim, 384-dim)
+    │   ├── sim_handles.py     SimHandle#N context handles
+    │   ├── auto_learn.py      Session-end KB growth (Stop hook)
+    │   └── learn.py           Manual learn CLI
+    ├── kb_store/              Persisted oracle vectors + handles (shared)
+    └── tests/                 79 existing tests + new server tests
+```
+
+**From the user's perspective:**
+- One `bash install.sh` that detects which mode to use
+- Same `[ORACLE ...]` hints, same `[SimHandle#N]`, same compression regardless of mode
+- Same `kb_store/` — oracle seeds and learned errors accumulate across both modes
+- Same Stop hook — `auto_learn.py` runs at session end whether using Mode A or B
 
 ---
 
@@ -14,13 +47,25 @@
 
 ```
 matlab-mcp-proxy/
-  proxy.py           ← existing proxy (wraps binary) — UNCHANGED
+  proxy.py           ← Mode A entry point — UNCHANGED
   compressor.py      ← 14 compression rules — REUSED AS-IS
-  router.py          ← 11-type classifier — REUSED AS-IS
+  router.py          ← 11-type classifier, HTML stripping — REUSED AS-IS
   kb/
-    error_oracle.py  ← oracle KB — REUSED AS-IS
-    sim_handles.py   ← context handles — REUSED AS-IS
-    auto_learn.py    ← session-end learning — REUSED AS-IS
+    embedder.py      ← bge-small-en-v1.5, 384-dim — REUSED AS-IS
+    error_oracle.py  ← cosine-sim oracle, threshold 0.79 — REUSED AS-IS
+    sim_handles.py   ← SimHandle#N store — REUSED AS-IS
+    auto_learn.py    ← session-log parser, auto KB growth — REUSED AS-IS
+    learn.py         ← manual learn CLI — REUSED AS-IS
+  kb_store/
+    errors.json      ← 20 oracle seeds (auto-grows) — SHARED between modes
+    errors.npy       ← vector matrix — SHARED
+    handles/         ← sim result store — SHARED
+    pending_errors.jsonl  ← logged by both proxy.py and server/ — SHARED
+  tests/
+    test_compressor.py, test_proxy_protocol.py,
+    test_router.py, test_oracle.py, test_handles.py  ← 79 tests — UNCHANGED
+  docs/
+    index.html       ← full HTML reference — WILL BE UPDATED in Task 8
 ```
 
 Everything under `server/` is new. It imports from the parent package (`router`, `compressor`, `kb.*`) so all proxy features are available without copying code.
@@ -1536,6 +1581,484 @@ git push origin main
 
 ---
 
+## Task 9: Unified Install — Smart Mode Detection
+
+**Files:**
+- Modify: `install.sh` — complete rewrite to auto-detect and present both modes
+
+The current `install.sh` wires up Mode A (proxy wrapping the binary). This task replaces it with a script that:
+1. Detects whether `matlab-mcp-core-server` binary exists
+2. Detects whether `matlab.engine` is available
+3. Presents the user with the right option(s) and configures `~/.claude.json`
+
+**Files:**
+- Modify: `install.sh`
+
+- [ ] **Step 1: Write the unified install.sh**
+
+Replace the entire `install.sh` with:
+
+```bash
+#!/usr/bin/env bash
+# install.sh — Unified installer for matlab-mcp-proxy
+# Supports two modes:
+#   Mode A: Proxy wrapping matlab-mcp-core-server binary (original)
+#   Mode B: Pure Python server via matlab.engine (no binary needed)
+set -e
+
+PROXY_ROOT="$(cd "$(dirname "$0")" && pwd)"
+CLAUDE_JSON="$HOME/.claude.json"
+
+# ── utility ────────────────────────────────────────────────────────────────────
+die()  { echo "ERROR: $*" >&2; exit 1; }
+info() { echo "  $*"; }
+
+python3_path() { command -v python3 || die "python3 not found"; }
+
+detect_matlab_root() {
+  for candidate in \
+    /Applications/MATLAB_R2025a.app \
+    /Applications/MATLAB_R2024b.app \
+    /Applications/MATLAB_R2024a.app; do
+    [[ -d "$candidate" ]] && echo "$candidate" && return
+  done
+  echo ""
+}
+
+has_binary() {
+  command -v matlab-mcp-core-server &>/dev/null || \
+    [[ -f "$HOME/.local/bin/matlab-mcp-core-server" ]]
+}
+
+has_matlab_engine() {
+  python3 -c "import matlab.engine" 2>/dev/null
+}
+
+patch_claude_json() {
+  python3 "$PROXY_ROOT/install_helper.py" "$@"
+}
+
+# ── argument parsing ───────────────────────────────────────────────────────────
+MODE=""
+WORK_FOLDER="$HOME/Documents/MATLAB"
+SATK_PATH="$(dirname "$PROXY_ROOT")/simulink-agentic-toolkit"
+BYPASS=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --mode)     MODE="$2";        shift 2 ;;
+    --work)     WORK_FOLDER="$2"; shift 2 ;;
+    --satk)     SATK_PATH="$2";   shift 2 ;;
+    --bypass)   BYPASS=true;      shift   ;;
+    --uninstall)
+      python3 "$PROXY_ROOT/install_helper.py" --uninstall
+      echo "Uninstalled. Restart Claude Code."
+      exit 0 ;;
+    *) die "Unknown flag: $1" ;;
+  esac
+done
+
+# ── auto-detect mode if not specified ─────────────────────────────────────────
+if [[ -z "$MODE" ]]; then
+  if has_matlab_engine; then
+    MODE="python"
+    info "matlab.engine detected → using Mode B (Python server)"
+  elif has_binary; then
+    MODE="proxy"
+    info "matlab-mcp-core-server binary detected → using Mode A (proxy)"
+  else
+    echo ""
+    echo "Neither matlab.engine nor matlab-mcp-core-server binary found."
+    echo ""
+    echo "Options:"
+    echo "  1. Install matlab.engine (ships with MATLAB):"
+    echo "     cd \$(matlabroot)/extern/engines/python && python3 setup.py install --user"
+    echo "     Then re-run: bash install.sh"
+    echo ""
+    echo "  2. Install matlab-mcp-core-server binary from:"
+    echo "     https://github.com/matlab/matlab-mcp-core-server"
+    echo "     Then re-run: bash install.sh"
+    exit 1
+  fi
+fi
+
+MATLAB_ROOT="$(detect_matlab_root)"
+
+# ── install matlab.engine if needed ───────────────────────────────────────────
+if [[ "$MODE" == "python" ]] && ! has_matlab_engine; then
+  [[ -z "$MATLAB_ROOT" ]] && die "MATLAB not found. Set MATLAB_ROOT env var."
+  info "Installing matlab.engine from $MATLAB_ROOT..."
+  (cd "$MATLAB_ROOT/extern/engines/python" && python3 setup.py install --user)
+fi
+
+# ── write ~/.claude.json ───────────────────────────────────────────────────────
+python3 - <<PYEOF
+import json, pathlib, os, sys
+
+claude_json = pathlib.Path("$CLAUDE_JSON")
+proxy_root  = "$PROXY_ROOT"
+work_folder = "$WORK_FOLDER"
+satk_path   = "$SATK_PATH"
+mode        = "$MODE"
+bypass_flag = $( [[ "$BYPASS" == "true" ]] && echo "True" || echo "False" )
+
+d = {}
+if claude_json.exists():
+    try:
+        d = json.loads(claude_json.read_text())
+    except json.JSONDecodeError:
+        pass
+d.setdefault('mcpServers', {})
+
+bypass_args = ["--bypass"] if bypass_flag else []
+
+if mode == "python":
+    base_args = [f"{proxy_root}/server/matlab_mcp.py",
+                 "--mode", "existing",
+                 "--working-folder", work_folder]
+    satk_args = base_args + ["--satk-path", satk_path] if os.path.isdir(satk_path) else base_args
+    d['mcpServers']['matlab']   = {"command": "python3", "args": base_args + bypass_args,
+                                    "env": {}, "type": "stdio"}
+    d['mcpServers']['simulink'] = {"command": "python3", "args": satk_args + bypass_args,
+                                    "env": {}, "type": "stdio"}
+    print(f"Configured Mode B (Python server) in {claude_json}")
+else:
+    binary = os.path.expanduser("~/.local/bin/matlab-mcp-core-server")
+    proxy  = f"{proxy_root}/proxy.py"
+    matlab_root = "$MATLAB_ROOT"
+    d['mcpServers']['matlab'] = {
+        "command": "python3",
+        "args": [proxy, "--upstream", binary,
+                 "--initial-working-folder", work_folder,
+                 "--matlab-root", matlab_root,
+                 "--initialize-matlab-on-startup=true"] + bypass_args,
+        "env": {}, "type": "stdio"
+    }
+    d['mcpServers']['simulink'] = {
+        "command": "python3",
+        "args": [proxy, "--upstream", binary,
+                 "--matlab-session-mode=existing",
+                 f"--extension-file={satk_path}/tools/tools.json"] + bypass_args,
+        "env": {}, "type": "stdio"
+    }
+    print(f"Configured Mode A (proxy + binary) in {claude_json}")
+
+claude_json.write_text(json.dumps(d, indent=2))
+PYEOF
+
+echo ""
+echo "Done. Restart Claude Code to activate."
+echo "Mode: $MODE | Working folder: $WORK_FOLDER"
+```
+
+- [ ] **Step 2: Test --uninstall still works**
+
+```bash
+bash install.sh --uninstall 2>&1
+```
+Expected: `Uninstalled. Restart Claude Code.`
+
+- [ ] **Step 3: Test auto-detection (dry run, read the output)**
+
+```bash
+bash install.sh 2>&1
+```
+Expected (since matlab.engine is installed): `matlab.engine detected → using Mode B (Python server)`
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add install.sh
+git commit -m "feat: unified install.sh — auto-detects Mode A (proxy) or Mode B (Python server)"
+```
+
+---
+
+## Task 10: Shared KB — Both Modes Write to the Same Store
+
+**Goal:** Verify that `proxy.py` (Mode A) and `server/matlab_mcp.py` (Mode B) both log unmatched errors to the same `kb_store/pending_errors.jsonl` and that `auto_learn.py` processes them identically regardless of which mode was used.
+
+**Why this matters:** If a user switches between modes, their oracle KB, learned errors, and sim handles should all persist. The `kb_store/` directory is the source of truth for both.
+
+**Files:**
+- Modify: `kb/auto_learn.py` — make `SESSION_DIR` configurable via env var (so it can find logs in different project dirs)
+- Modify: `~/.claude/settings.json` — Stop hook already calls `auto_learn.py`; verify path is absolute
+
+- [ ] **Step 1: Verify `kb_store/` path resolution is identical in both modes**
+
+In `proxy.py` line 39-40, the store path is:
+```python
+store = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'kb_store')
+```
+
+In `server/matlab_mcp.py` the store path is:
+```python
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# then:
+store = os.path.join(_ROOT, 'kb_store')
+```
+
+Both resolve to `matlab-mcp-proxy/kb_store/`. Write a test to verify:
+
+Add to `server/tests/test_mcp_protocol.py`:
+```python
+def test_kb_store_path_matches_proxy():
+    """Both proxy.py and server/ must resolve to the same kb_store/."""
+    import os
+    server_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    proxy_root  = os.path.dirname(os.path.abspath(
+        os.path.join(os.path.dirname(__file__), '..', '..', 'proxy.py')))
+    assert os.path.normpath(server_root) == os.path.normpath(proxy_root)
+```
+
+- [ ] **Step 2: Make `SESSION_DIR` in `auto_learn.py` respect `CLAUDE_PROJECT_DIR` env var**
+
+Replace the hardcoded path in `kb/auto_learn.py`:
+
+```python
+# Old (hardcoded to one project):
+SESSION_DIR = Path.home() / '.claude' / 'projects' / '-Users-soorajkrishnan-simscape-agent'
+
+# New (configurable, with sensible default):
+_default_project_slug = '-Users-soorajkrishnan-simscape-agent'
+SESSION_DIR = Path(os.environ.get(
+    'CLAUDE_PROJECT_DIR',
+    str(Path.home() / '.claude' / 'projects' / _default_project_slug)
+))
+```
+
+This lets any user set `CLAUDE_PROJECT_DIR` in their environment to point at their own project.
+
+- [ ] **Step 3: Update Stop hook in settings.json to set CLAUDE_PROJECT_DIR**
+
+In `~/.claude/settings.json`, update the Stop hook command to:
+```
+CLAUDE_PROJECT_DIR=~/.claude/projects/-Users-soorajkrishnan-simscape-agent python3 /Users/soorajkrishnan/simscape-agent/matlab-mcp-proxy/kb/auto_learn.py >>kb/kb_pipeline.log 2>&1
+```
+
+- [ ] **Step 4: Run existing oracle tests to confirm nothing broke**
+
+```bash
+pytest tests/test_oracle.py -v
+```
+Expected: 10/10 pass
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add kb/auto_learn.py
+git commit -m "feat(kb): make SESSION_DIR configurable via CLAUDE_PROJECT_DIR env var — shared KB across both modes"
+```
+
+---
+
+## Task 11: Unified Test Runner — All 79 + New Tests in One Command
+
+**Goal:** A single `pytest` invocation runs the full test suite: existing 79 tests + all new server tests. CI-ready.
+
+**Files:**
+- Create: `pytest.ini` — configure test discovery
+- Modify: `tests/benchmark.py` — add `--server` flag to benchmark the Python server too
+
+- [ ] **Step 1: Create `pytest.ini`**
+
+```ini
+[pytest]
+testpaths = tests server/tests
+python_files = test_*.py
+python_classes = Test*
+python_functions = test_*
+markers =
+    integration: requires live MATLAB session (deselect with -m "not integration")
+```
+
+- [ ] **Step 2: Run unified test suite**
+
+```bash
+cd /Users/soorajkrishnan/simscape-agent/matlab-mcp-proxy
+pytest -v -m "not integration"
+```
+
+Expected output ends with something like:
+```
+tests/test_compressor.py        27 passed
+tests/test_proxy_protocol.py    10 passed
+tests/test_router.py            20 passed
+tests/test_oracle.py            10 passed
+tests/test_handles.py           12 passed
+server/tests/test_engine_bridge.py   7 passed
+server/tests/test_matlab_tools.py   10 passed
+server/tests/test_simulink_tools.py   8 passed
+server/tests/test_mcp_protocol.py   10 passed
+====== 114 passed ======
+```
+
+- [ ] **Step 3: Add server benchmark to `tests/benchmark.py`**
+
+Add at the bottom of `tests/benchmark.py` before `main()`:
+
+```python
+def bench_server_pipeline(results: dict):
+    """B5: Same pipeline test via server/ imports (verifies server uses same code)."""
+    print(f"\nB5: Server Pipeline (verifies shared pipeline)")
+    import importlib.util, sys, os
+    server_path = os.path.join(os.path.dirname(__file__), '..', 'server', 'matlab_mcp.py')
+    spec = importlib.util.spec_from_file_location("matlab_mcp", server_path)
+    mod  = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    # The server's _apply_pipeline must produce identical output to the proxy's compress()
+    from compressor import compress
+    test_text = "  Name   Size   Bytes  Class\n\n  x  1x1  8  double\n"
+    proxy_out  = compress(test_text)
+    server_out = mod._apply_pipeline(test_text, bypass=False)
+    match = proxy_out == server_out
+    print(f"  Proxy output == Server output: {'✓' if match else '✗ MISMATCH'}")
+    results["pipeline_parity"] = match
+```
+
+Update `main()` to call `bench_server_pipeline(results)`.
+
+- [ ] **Step 4: Run benchmark**
+
+```bash
+python3 tests/benchmark.py 2>/dev/null | grep -E "B5|parity"
+```
+Expected: `Proxy output == Server output: ✓`
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add pytest.ini tests/benchmark.py
+git commit -m "feat: unified test runner — pytest.ini covers all 114 tests; benchmark verifies pipeline parity"
+```
+
+---
+
+## Task 12: Holistic Documentation — README + HTML + Package Identity
+
+**Goal:** Both docs present this as ONE package with two modes. Remove the split between "proxy docs" and "server docs" — it's one tool.
+
+**Files:**
+- Modify: `README.md` — rewrite opening to present the unified vision
+- Modify: `docs/index.html` — add "Two modes, one package" architecture section
+
+### README changes
+
+- [ ] **Step 1: Update the README tagline and architecture section**
+
+Replace the opening paragraph of `README.md`:
+
+```markdown
+# matlab-mcp-proxy
+
+A Python-based MATLAB agent layer for Claude Code — compresses verbose 
+MATLAB/Simulink/Simscape tool responses, maintains an Error→Fix debugging oracle 
+that grows with every session, and stores simulation results as compact context handles.
+
+Works in two modes:
+- **Mode A (Proxy):** wraps `matlab-mcp-core-server` binary — for users who have it
+- **Mode B (Python Server):** uses `matlab.engine` directly — no binary, IT-friendly,
+  works anywhere MATLAB is installed
+
+Both modes use the **same compression pipeline, oracle KB, and context handles.**
+One `bash install.sh` picks the right mode automatically.
+
+> Full documentation: [`docs/index.html`](docs/index.html)
+```
+
+- [ ] **Step 2: Replace the Mermaid architecture diagram**
+
+Replace the current Mermaid diagram with one showing both modes:
+
+```mermaid
+flowchart TD
+    CC([Claude Code])
+
+    subgraph proxy["Mode A — Proxy (has binary)"]
+        PA["proxy.py → matlab-mcp-core-server"]
+    end
+
+    subgraph server["Mode B — Python Server (IT-friendly)"]
+        PB["server/matlab_mcp.py → matlab.engine"]
+    end
+
+    subgraph pipeline["Shared pipeline (both modes)"]
+        direction LR
+        P["Semantic Routing · Output Compression · Debugging Oracle · Sim Result Handles"]
+    end
+
+    CC -->|request| proxy
+    CC -->|request| server
+    proxy -->|raw output| pipeline
+    server -->|raw output| pipeline
+    pipeline -->|compressed + enriched| CC
+```
+
+- [ ] **Step 3: Add "Choose your mode" section to README**
+
+After the architecture diagram, add:
+
+```markdown
+## Quick start
+
+```bash
+git clone https://github.com/nightfury1802/matlab-mcp-proxy.git
+cd matlab-mcp-proxy
+bash install.sh        # auto-detects which mode to use
+# Restart Claude Code
+python3 tests/pmsm_foc/seed_oracle.py   # load 20 oracle seeds
+```
+
+**Mode B (Python server) requires one extra step the first time:**
+```bash
+cd /Applications/MATLAB_R2025a.app/extern/engines/python
+python3 setup.py install --user
+```
+Then `bash install.sh` will detect it automatically.
+```
+
+- [ ] **Step 4: Update HTML — add "Two modes" section to Architecture**
+
+In `docs/index.html`, after the existing architecture `<pre>` block, add:
+
+```html
+<h3>Two modes, one package</h3>
+<table>
+  <thead>
+    <tr><th></th><th>Mode A — Proxy</th><th>Mode B — Python Server</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><strong>Entry point</strong></td><td><code>proxy.py</code></td><td><code>server/matlab_mcp.py</code></td></tr>
+    <tr><td><strong>MATLAB connection</strong></td><td>HTTP Connector API (localhost)</td><td><code>matlab.engine</code> (official Python API)</td></tr>
+    <tr><td><strong>Requires</strong></td><td>matlab-mcp-core-server binary</td><td>MATLAB only (no binary)</td></tr>
+    <tr><td><strong>IT approval needed</strong></td><td>Binary install</td><td>None beyond MATLAB</td></tr>
+    <tr><td><strong>Compression</strong></td><td>✅ identical</td><td>✅ identical</td></tr>
+    <tr><td><strong>Oracle KB</strong></td><td>✅ identical</td><td>✅ identical</td></tr>
+    <tr><td><strong>Context handles</strong></td><td>✅ identical</td><td>✅ identical</td></tr>
+    <tr><td><strong>Auto-learn (Stop hook)</strong></td><td>✅ shared kb_store</td><td>✅ shared kb_store</td></tr>
+    <tr><td><strong>Install</strong></td><td colspan="2"><code>bash install.sh</code> — auto-detects which mode to use</td></tr>
+  </tbody>
+</table>
+```
+
+- [ ] **Step 5: Run full test suite one final time**
+
+```bash
+pytest -v -m "not integration"
+```
+Expected: 114 passed
+
+- [ ] **Step 6: Final commit**
+
+```bash
+git add README.md docs/index.html
+git commit -m "docs: holistic package — two modes one package, unified README/HTML, mode comparison table"
+git push origin main
+```
+
+---
+
 ## Self-Review
 
 ### Spec coverage
@@ -1550,13 +2073,27 @@ git push origin main
 | Context handles reused | Task 5 — `_get_handle_store()` |
 | `--mode existing` (attach, no new port) | Task 5 + Task 7 |
 | `--bypass` flag | Task 5 |
-| `install.sh --python-server` | Task 7 |
+| Unified install — auto-detects mode | Task 9 |
 | Integration tests with real MATLAB | Task 6 |
-| IT-friendly: no binary, local only | Entire server design |
+| IT-friendly: no binary, local only | Mode B design |
+| Both modes share same kb_store | Task 10 |
+| `CLAUDE_PROJECT_DIR` env var for portability | Task 10 |
+| Unified pytest — 114 tests one command | Task 11 |
+| Benchmark verifies pipeline parity | Task 11 |
+| README presents unified package | Task 12 |
+| HTML "two modes" comparison table | Task 12 |
+| Mermaid diagram shows both modes | Task 12 |
 
 ### No placeholders ✓
 
 ### Type consistency ✓
 - `EngineBridge.eval()` → `tuple[str, str]` (out, err) — consistent Tasks 2→3→4
 - Tool handlers `(bridge, args) → tuple[str, bool]` (text, is_error) — consistent Tasks 3→4→5
-- `_apply_pipeline(text, bypass) → str` — consistent Task 5→tests
+- `_apply_pipeline(text, bypass) → str` — consistent Task 5→tests→Task 11 benchmark
+
+### Task count summary
+| Phase | Tasks | What it delivers |
+|---|---|---|
+| Core server | 1–7 | Working Python MCP server, all MATLAB tools, integration tests |
+| Holistic integration | 9–12 | Unified install, shared KB, 114-test suite, unified docs |
+| Total | **11 tasks** | One package, two modes, fully documented |
