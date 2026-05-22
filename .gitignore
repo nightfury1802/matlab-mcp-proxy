@@ -12,3 +12,4 @@ kb_store/*.bin
 kb_store/*.json
 kb_store/*.npy
 !kb_store/.gitkeep
+docs/superpowers/
