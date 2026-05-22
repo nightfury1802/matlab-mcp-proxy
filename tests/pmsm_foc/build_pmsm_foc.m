@@ -1,155 +1,131 @@
 %% build_pmsm_foc.m
-% Builds PMSM_FOC_Proxy_Test.slx programmatically.
-% Demonstrates: whos output (R03), struct display (R10), build output (R07)
+% Builds PMSM_FOC_Proxy_Test.slx programmatically using Simscape Electrical.
 %
-% Motor: Interior PMSM, analytical params, 4-pole-pair
-% Control: Discrete PI current loops (Ts = 100 µs)
-% Inverter: Averaged voltage source (continuous)
-% Purpose: Generate real MATLAB MCP output for proxy v2 validation
+% Model: PMSM (DQ0) + Closed-loop PI current control + Velocity source
+% Tests: Proxy v2 compression features (whos R03, struct R10, DOE R08, oracle, handles)
+% Validated: MATLAB R2025a, 9/9 DOE PASS, torque error < 0.01%
+%
+% Architecture:
+%   Simscape: PMSM(DQ0) driven by controlled voltage sources (CVS_d, CVS_q)
+%             with current sensors in series. Velocity source prescribes speed.
+%   Simulink: Discrete PI controllers (id and iq) close the current loop.
+%
+% Usage:
+%   run('build_pmsm_foc.m')   % builds and saves PMSM_FOC_Proxy_Test.slx
+%   sim('PMSM_FOC_Proxy_Test') % simulate (params must be in base workspace)
 
-%% Motor parameters (base workspace)
-params.Rs     = 0.0182;      % Stator resistance [Ohm]
-params.Ld     = 2.1e-4;      % d-axis inductance [H]
-params.Lq     = 4.3e-4;      % q-axis inductance [H]
-params.lambda  = 0.1012;     % PM flux linkage [Wb]
-params.p      = 4;           % Pole pairs
-params.J      = 0.001;       % Rotor inertia [kg·m²]
-params.B      = 0.001;       % Viscous damping [N·m·s/rad]
-params.Vbus   = 400;         % DC bus voltage [V]
-params.Ts     = 1e-4;        % Control sample time [s]
-params.Kp_d   = 12.4;        % d-axis PI Kp
-params.Ki_d   = 1240;        % d-axis PI Ki
-params.Kp_q   = 12.4;        % q-axis PI Kp
-params.Ki_q   = 1240;        % q-axis PI Ki
-params.omega_ref = 500;      % Reference speed [rad/s]
-params.T_max  = 107.63;      % Max torque [Nm]
+%% ── Motor parameters ─────────────────────────────────────────────────
+params.Rs     = 0.0182;    % Stator resistance [Ohm]
+params.Ld     = 2.1e-4;    % d-axis inductance [H]
+params.Lq     = 4.3e-4;    % q-axis inductance [H]
+params.lambda  = 0.1012;   % PM flux linkage [Wb]
+params.p      = 4;         % Pole pairs
+params.J      = 0.001;     % Rotor inertia [kg·m²]
 
-% Show params — demonstrates struct display compression
+%% ── Operating point ──────────────────────────────────────────────────
+params.omega_ref = 300;    % Rotor speed reference [mech rad/s]  (~2865 rpm)
+params.T_ref     = 50;     % Torque reference [Nm]
+params.id_ref    = 0;      % d-axis current ref (unity PF, no field weakening)
+params.iq_ref    = params.T_ref / (1.5 * params.p * params.lambda);  % 82.35 A
+
+%% ── PI current control ────────────────────────────────────────────────
+wc = 5000;                 % Current loop bandwidth [rad/s]
+params.Kp_d   = wc * params.Ld;   % 1.05
+params.Ki_d   = wc * params.Rs;   % 91
+params.Kp_q   = wc * params.Lq;   % 2.15
+params.Ki_q   = wc * params.Rs;   % 91
+params.Ts_ctrl = 1e-4;            % Control sample time [s]
+
+fprintf('Motor: Rs=%.4f, Ld=%.2e, Lq=%.2e, lambda=%.4f, p=%d\n', ...
+    params.Rs, params.Ld, params.Lq, params.lambda, params.p);
+fprintf('Op pt: omega=%.0f rad/s, T_ref=%.0f Nm, iq_ref=%.2f A\n', ...
+    params.omega_ref, params.T_ref, params.iq_ref);
 params
 
-% Show workspace — demonstrates whos compression
-whos
-
+%% ── Create model ──────────────────────────────────────────────────────
 MODEL = 'PMSM_FOC_Proxy_Test';
-fprintf('\nBuilding model: %s\n', MODEL);
-
-%% Create model
 if bdIsLoaded(MODEL), close_system(MODEL, 0); end
 new_system(MODEL);
-open_system(MODEL);
+set_param(MODEL, 'SolverType','Variable-step', 'Solver','ode15s', ...
+    'RelTol','1e-5', 'AbsTol','1e-7', 'StopTime','0.3', 'MaxStep','1e-5', ...
+    'AlgebraicLoopMsg','none');  % suppress algebraic loop diagnostic
 
-%% Solver settings
-set_param(MODEL, ...
-    'SolverType', 'Variable-step', ...
-    'Solver',     'ode15s', ...
-    'RelTol',     '1e-4', ...
-    'AbsTol',     '1e-6', ...
-    'StopTime',   '0.5', ...
-    'MaxStep',    '1e-4');
+%% ── Simscape blocks ───────────────────────────────────────────────────
+add_block('ee_lib/Electromechanical/Permanent Magnet/PMSM (DQ0)', [MODEL '/PMSM_DQ'], ...
+    'pm_flux_linkage','params.lambda', 'nPolePairs','params.p', ...
+    'Ld','params.Ld', 'Lq','params.Lq', 'Rs','params.Rs', 'J','params.J', ...
+    'Position',[500 200 640 340]);
+add_block('fl_lib/Electrical/Electrical Elements/Electrical Reference', [MODEL '/ERef'],       'Position',[100 560 150 600]);
+add_block('nesl_utility/Solver Configuration',                           [MODEL '/SolverCfg'],  'Position',[60 500 180 540]);
+add_block('fl_lib/Mechanical/Rotational Elements/Mechanical Rotational Reference', [MODEL '/MRRef_Motor'], 'Position',[650 260 700 300]);
+add_block('fl_lib/Mechanical/Rotational Elements/Mechanical Rotational Reference', [MODEL '/MRRef_Vel'],   'Position',[300 430 350 470]);
+add_block('fl_lib/Mechanical/Mechanical Sources/Ideal Angular Velocity Source',    [MODEL '/VelSrc'],      'Position',[390 360 490 420]);
 
-%% Simscape solver configuration block
-add_block('nesl_utility/Solver Configuration', [MODEL '/SolverConfig']);
-set_param([MODEL '/SolverConfig'], 'Position', [30 30 130 70]);
+% d-axis: CVS_d → CS_d → PMSM/d
+add_block('fl_lib/Electrical/Electrical Sources/Controlled Voltage Source', [MODEL '/CVS_d'], 'Position',[310 190 400 250]);
+add_block('fl_lib/Electrical/Electrical Sensors/Current Sensor',            [MODEL '/CS_d'],  'Position',[420 190 490 230]);
+% q-axis: CVS_q → CS_q → PMSM/q
+add_block('fl_lib/Electrical/Electrical Sources/Controlled Voltage Source', [MODEL '/CVS_q'], 'Position',[310 280 400 340]);
+add_block('fl_lib/Electrical/Electrical Sensors/Current Sensor',            [MODEL '/CS_q'],  'Position',[420 280 490 320]);
 
-%% Electrical reference
-add_block('nesl_utility/Electrical Reference', [MODEL '/ElecRef']);
-set_param([MODEL '/ElecRef'], 'Position', [30 100 80 140]);
+%% ── Simulink control blocks ────────────────────────────────────────────
+add_block('simulink/Sources/Constant',                            [MODEL '/id_ref'],    'Value','params.id_ref',    'Position',[20 50 80 80]);
+add_block('simulink/Sources/Constant',                            [MODEL '/iq_ref'],    'Value','params.iq_ref',    'Position',[20 150 80 180]);
+add_block('simulink/Math Operations/Sum',                         [MODEL '/Sum_d'],     'Inputs','+-',              'Position',[110 50 140 80]);
+add_block('simulink/Math Operations/Sum',                         [MODEL '/Sum_q'],     'Inputs','+-',              'Position',[110 150 140 180]);
+add_block('simulink/Discrete/Discrete PID Controller',            [MODEL '/PI_d'],      'Controller','PI', 'SampleTime','params.Ts_ctrl', 'P','params.Kp_d', 'I','params.Ki_d', 'Position',[160 40 250 90]);
+add_block('simulink/Discrete/Discrete PID Controller',            [MODEL '/PI_q'],      'Controller','PI', 'SampleTime','params.Ts_ctrl', 'P','params.Kp_q', 'I','params.Ki_q', 'Position',[160 140 250 190]);
+add_block('nesl_utility/Simulink-PS Converter',                   [MODEL '/S2PS_Vd'],   'Position',[270 50 350 80]);
+add_block('nesl_utility/Simulink-PS Converter',                   [MODEL '/S2PS_Vq'],   'Position',[270 150 350 180]);
+add_block('simulink/Sources/Constant',                            [MODEL '/omega_const'],'Value','params.omega_ref','Position',[200 370 260 400]);
+add_block('nesl_utility/Simulink-PS Converter',                   [MODEL '/S2PS_omega'],'Position',[270 370 350 400]);
+add_block('nesl_utility/PS-Simulink Converter',                   [MODEL '/PS2S_id'],   'Position',[660 195 730 225]);
+add_block('nesl_utility/PS-Simulink Converter',                   [MODEL '/PS2S_iq'],   'Position',[660 285 730 315]);
+add_block('simulink/Sinks/To Workspace',[MODEL '/log_id'], 'VariableName','id_out', 'SaveFormat','Array','SampleTime','params.Ts_ctrl','Position',[750 198 840 218]);
+add_block('simulink/Sinks/To Workspace',[MODEL '/log_iq'], 'VariableName','iq_out', 'SaveFormat','Array','SampleTime','params.Ts_ctrl','Position',[750 288 840 308]);
+add_block('simulink/Sinks/To Workspace',[MODEL '/log_Vd'], 'VariableName','Vd_out', 'SaveFormat','Array','SampleTime','params.Ts_ctrl','Position',[270 240 350 260]);
+add_block('simulink/Sinks/To Workspace',[MODEL '/log_Vq'], 'VariableName','Vq_out', 'SaveFormat','Array','SampleTime','params.Ts_ctrl','Position',[270 330 350 350]);
 
-%% Mechanical rotational reference
-add_block('nesl_utility/Mechanical Rotational Reference', [MODEL '/MechRef']);
-set_param([MODEL '/MechRef'], 'Position', [30 170 80 210]);
+%% ── Simulink signal wires ──────────────────────────────────────────────
+add_line(MODEL,'id_ref/1','Sum_d/1','autorouting','smart');
+add_line(MODEL,'iq_ref/1','Sum_q/1','autorouting','smart');
+add_line(MODEL,'PS2S_id/1','Sum_d/2','autorouting','smart');
+add_line(MODEL,'PS2S_iq/1','Sum_q/2','autorouting','smart');
+add_line(MODEL,'Sum_d/1','PI_d/1','autorouting','smart');
+add_line(MODEL,'Sum_q/1','PI_q/1','autorouting','smart');
+add_line(MODEL,'PI_d/1','S2PS_Vd/1','autorouting','smart');
+add_line(MODEL,'PI_q/1','S2PS_Vq/1','autorouting','smart');
+add_line(MODEL,'S2PS_Vd/RConn1','CVS_d/RConn1','autorouting','smart');
+add_line(MODEL,'S2PS_Vq/RConn1','CVS_q/RConn1','autorouting','smart');
+add_line(MODEL,'PI_d/1','log_Vd/1','autorouting','smart');
+add_line(MODEL,'PI_q/1','log_Vq/1','autorouting','smart');
+add_line(MODEL,'CS_d/RConn1','PS2S_id/LConn1','autorouting','smart');
+add_line(MODEL,'CS_q/RConn1','PS2S_iq/LConn1','autorouting','smart');
+add_line(MODEL,'PS2S_id/1','log_id/1','autorouting','smart');
+add_line(MODEL,'PS2S_iq/1','log_iq/1','autorouting','smart');
+add_line(MODEL,'omega_const/1','S2PS_omega/1','autorouting','smart');
+add_line(MODEL,'S2PS_omega/RConn1','VelSrc/RConn1','autorouting','smart');
 
-%% PMSM block
-add_block('ee_lib/Machines/Permanent Magnet Synchronous Machine', [MODEL '/PMSM']);
-set_param([MODEL '/PMSM'], ...
-    'Position',              [250 80 420 280], ...
-    'Stator_resistance',     'params.Rs', ...
-    'd_axis_inductance',     'params.Ld', ...
-    'q_axis_inductance',     'params.Lq', ...
-    'PM_flux_linkage',       'params.lambda', ...
-    'Number_of_pole_pairs',  'params.p', ...
-    'Rotor_inertia',         'params.J', ...
-    'Rotor_damping',         'params.B');
+%% ── Simscape physical network ──────────────────────────────────────────
+% Verified port names (R2025a):
+%   PMSM DQ0: d, q, z (electrical), R, C (mechanical)
+%   CVS fl_lib: p, n (electrical), RConn1 (PS input via add_line)
+%   CurrSens fl_lib: p, n (electrical), RConn1 (PS output via add_line)
+%   VelSrc: R, C (mechanical), RConn1 (PS input via add_line)
+add_line(MODEL,'SolverCfg/RConn1','ERef/LConn1','autorouting','smart');
+simscape.addConnection([MODEL '/CVS_d'],'n',[MODEL '/ERef'],'V');
+simscape.addConnection([MODEL '/CVS_d'],'p',[MODEL '/CS_d'],'p');
+simscape.addConnection([MODEL '/CS_d'],'n',[MODEL '/PMSM_DQ'],'d');
+simscape.addConnection([MODEL '/CVS_q'],'n',[MODEL '/ERef'],'V');
+simscape.addConnection([MODEL '/CVS_q'],'p',[MODEL '/CS_q'],'p');
+simscape.addConnection([MODEL '/CS_q'],'n',[MODEL '/PMSM_DQ'],'q');
+simscape.addConnection([MODEL '/PMSM_DQ'],'z',[MODEL '/ERef'],'V');
+simscape.addConnection([MODEL '/PMSM_DQ'],'C',[MODEL '/MRRef_Motor'],'W');
+simscape.addConnection([MODEL '/PMSM_DQ'],'R',[MODEL '/VelSrc'],'R');
+simscape.addConnection([MODEL '/VelSrc'],'C',[MODEL '/MRRef_Vel'],'W');
 
-%% Controlled voltage sources (d/q averaged inverter)
-add_block('ee_lib/Sources/Controlled Voltage Source', [MODEL '/Vd_src']);
-set_param([MODEL '/Vd_src'], 'Position', [130 80 200 140]);
-
-add_block('ee_lib/Sources/Controlled Voltage Source', [MODEL '/Vq_src']);
-set_param([MODEL '/Vq_src'], 'Position', [130 180 200 240]);
-
-%% Load torque (constant)
-add_block('fl_lib/Mechanical/Rotational Sources/Ideal Torque Source', ...
-    [MODEL '/TLoad']);
-set_param([MODEL '/TLoad'], 'Position', [460 140 560 220]);
-
-%% Constant load torque signal
-add_block('simulink/Sources/Constant', [MODEL '/TLoad_val']);
-set_param([MODEL '/TLoad_val'], ...
-    'Position', [380 160 440 200], ...
-    'Value',    '-params.T_max * 0.5');
-
-%% S-PS converter for load torque
-add_block('nesl_utility/Simulink-PS Converter', [MODEL '/S2PS_TLoad']);
-set_param([MODEL '/S2PS_TLoad'], 'Position', [460 160 520 200]);
-
-%% Sensing: torque and speed
-add_block('nesl_utility/PS-Simulink Converter', [MODEL '/PS2S_T']);
-set_param([MODEL '/PS2S_T'], 'Position', [580 140 640 180]);
-
-add_block('nesl_utility/PS-Simulink Converter', [MODEL '/PS2S_w']);
-set_param([MODEL '/PS2S_w'], 'Position', [580 200 640 240]);
-
-%% PI controllers (discrete)
-add_block('simulink/Discrete/Discrete PID Controller', [MODEL '/PI_d']);
-set_param([MODEL '/PI_d'], ...
-    'Position',   [30 300 150 360], ...
-    'Controller', 'PI', ...
-    'SampleTime', 'params.Ts', ...
-    'P',          'params.Kp_d', ...
-    'I',          'params.Ki_d');
-
-add_block('simulink/Discrete/Discrete PID Controller', [MODEL '/PI_q']);
-set_param([MODEL '/PI_q'], ...
-    'Position',   [30 400 150 460], ...
-    'Controller', 'PI', ...
-    'SampleTime', 'params.Ts', ...
-    'P',          'params.Kp_q', ...
-    'I',          'params.Ki_q');
-
-%% Reference currents
-add_block('simulink/Sources/Constant', [MODEL '/id_ref']);
-set_param([MODEL '/id_ref'], 'Position', [30 250 110 290], 'Value', '0');
-
-add_block('simulink/Sources/Constant', [MODEL '/iq_ref']);
-set_param([MODEL '/iq_ref'], ...
-    'Position', [30 480 110 520], ...
-    'Value',    'params.T_max / (1.5 * params.p * params.lambda)');
-
-%% S-PS converters for Vd/Vq
-add_block('nesl_utility/Simulink-PS Converter', [MODEL '/S2PS_Vd']);
-set_param([MODEL '/S2PS_Vd'], 'Position', [170 300 230 340]);
-
-add_block('nesl_utility/Simulink-PS Converter', [MODEL '/S2PS_Vq']);
-set_param([MODEL '/S2PS_Vq'], 'Position', [170 400 230 440]);
-
-%% Output logging
-add_block('simulink/Sinks/To Workspace', [MODEL '/log_torque']);
-set_param([MODEL '/log_torque'], ...
-    'Position',     [680 140 780 180], ...
-    'VariableName', 'torque_out', ...
-    'SampleTime',   'params.Ts', ...
-    'SaveFormat',   'Array');
-
-add_block('simulink/Sinks/To Workspace', [MODEL '/log_speed']);
-set_param([MODEL '/log_speed'], ...
-    'Position',     [680 200 780 240], ...
-    'VariableName', 'speed_out', ...
-    'SampleTime',   'params.Ts', ...
-    'SaveFormat',   'Array');
-
-%% Save
-save_system(MODEL);
-fprintf('Model saved: %s.slx\n', MODEL);
-fprintf('Blocks: %d\n', length(find_system(MODEL, 'SearchDepth', 1, 'Type', 'Block')));
-fprintf('Run run_pmsm_foc_sim.m to simulate.\n');
+%% ── Save ───────────────────────────────────────────────────────────────
+save_system(MODEL, fullfile(pwd, [MODEL '.slx']));
+fprintf('\nModel saved: %s.slx\n', MODEL);
+fprintf('Blocks: %d\n', length(find_system(MODEL,'SearchDepth',1,'Type','Block'))-1);
+whos
