@@ -8,21 +8,24 @@ A transparent MCP stdio proxy that compresses verbose MATLAB®, Simulink®, and 
 
 ## Architecture
 
-```
-                  requests (pass-through, never modified)
-          ┌────────────────────────────────────────────────────►
-          │
-Claude Code      proxy.py                    matlab-mcp-core-server   MATLAB
-          │   ┌─────────────────────┐
-          └◄──┤ 1. strip HTML       ├◄────────────────────────────────────────
-  compressed  │ 2. classify         │        raw tool_result
-   + enriched │ 3. compress         │
-              │ 4. oracle (→ hint)  │
-              │ 5. handles (→ ref)  │
-              └─────────────────────┘
+```mermaid
+flowchart LR
+    CC([Claude Code])
+
+    subgraph proxy["proxy.py"]
+        direction TB
+        steps["strip HTML  ·  classify  ·  compress 14 rules\noracle → fix hint  ·  handles → SimHandle#N"]
+    end
+
+    UP(["matlab-mcp-core-server  +  MATLAB R2025a"])
+
+    CC -->|"request (unchanged)"| proxy
+    proxy -->|"pass-through"| UP
+    UP -->|"raw tool_result"| proxy
+    proxy -->|"compressed + enriched"| CC
 ```
 
-> Detailed pipeline, before/after examples, configuration: **[`docs/index.html`](docs/index.html)**
+> Full pipeline details, before/after examples, config reference: **[`docs/index.html`](docs/index.html)**
 
 ---
 
