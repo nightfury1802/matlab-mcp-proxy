@@ -337,6 +337,12 @@
     <a href="#performance">Performance</a>
     <a href="#critical-notes">⚠ Critical Notes</a>
     <a href="#revert">Revert to Default</a>
+
+    <div class="section-label">v2 Features</div>
+    <a href="#mode-routing">Mode Routing</a>
+    <a href="#oracle">Error Oracle</a>
+    <a href="#handles">Sim Handles</a>
+    <a href="#v2-performance">v2 Performance</a>
   </nav>
 </aside>
 
@@ -1332,6 +1338,191 @@ EOF</code></pre>
     <li>You see <code>]</code> characters leaking into tool output (proxy parsing bug)</li>
     <li>You need to debug Simscape initial conditions and need the full Variable Viewer output</li>
   </ul>
+</section>
+
+<!-- ─────────────────────────────────────────── MODE ROUTING -->
+<section class="section" id="mode-routing">
+  <h2>v2: Semantic Mode Routing</h2>
+
+  <p>Classifies output into 11 types before applying compression rules. Eliminates false positives and enables type-specific KB dispatch. Classification is pure regex — no I/O, no model — and completes in &lt; 0.04ms.</p>
+
+  <table>
+    <thead>
+      <tr><th>Type</th><th>Trigger pattern</th><th>Pipeline applied</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>WHOS</code></td><td>Column-aligned Name/Size/Bytes table header</td><td>R03 whos compaction</td></tr>
+      <tr><td><code>ERROR</code></td><td>Starts with <code>Error using</code> or <code>Error in</code></td><td>R02, R11, R12 + oracle lookup</td></tr>
+      <tr><td><code>WARNING</code></td><td>Starts with <code>Warning:</code></td><td>R01 dedup + oracle lookup</td></tr>
+      <tr><td><code>TEST_RUN</code></td><td>MATLAB test runner table (<code>Passed</code>/<code>Failed</code> columns)</td><td>R09 test compaction</td></tr>
+      <tr><td><code>BUILD</code></td><td><code>### Starting build procedure</code> header</td><td>R07 build log collapse</td></tr>
+      <tr><td><code>SIM_RESULT</code></td><td>Simulation output signals (torque, speed, id, iq keywords)</td><td>R04 + handle store (v2)</td></tr>
+      <tr><td><code>PROGRESS</code></td><td>Repeated <code>fprintf</code>-style loop lines (DOE, sweeps)</td><td>R08 progress elision</td></tr>
+      <tr><td><code>STRUCT</code></td><td>MATLAB struct field display (<code>field:</code> lines)</td><td>R10 struct inline</td></tr>
+      <tr><td><code>ARRAY</code></td><td>Large numeric array auto-display</td><td>R04 array truncation</td></tr>
+      <tr><td><code>MODEL_QUERY</code></td><td>Unquoted block paths from <code>model_read</code> / <code>model_overview</code></td><td>R14 path shortening</td></tr>
+      <tr><td><code>PLAIN</code></td><td>Everything else</td><td>R05, R06, R13 (general)</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout">
+    <p><strong>Why this matters:</strong> Before v2, all 14 rules ran on every response. R03 (whos) could false-positive on struct output; R08 (progress) could eat lines from build logs. Routing ensures each rule fires only on the output type it was designed for.</p>
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────────── ORACLE -->
+<section class="section" id="oracle">
+  <h2>v2: Error→Fix Debugging Oracle</h2>
+
+  <p>A local vector knowledge base that maps MATLAB/Simscape error messages to known fixes. Uses <strong>BAAI/bge-small-en-v1.5</strong> (384-dim embeddings, ~22MB) via <code>sentence-transformers</code>. When an error's cosine similarity to a seeded pair exceeds <strong>0.82</strong>, a <code>[ORACLE: ...]</code> hint is prepended to the compressed output.</p>
+
+  <p>The oracle fires only on <code>ERROR</code> and <code>WARNING</code> classified outputs — adding ~7ms on the error path (embedding cost). The non-error path has zero overhead.</p>
+
+  <div class="before-after">
+    <div>
+      <div class="label-ba before">Before (no oracle)</div>
+      <pre>Error using sim (line 847)
+Derivative of state 'PMSM/id' is not finite.
+Singularity likely at t=0.0012.</pre>
+    </div>
+    <div>
+      <div class="label-ba after">After (oracle match, score=0.93)</div>
+      <pre>[ORACLE (score=0.93): Set solver absolute
+tolerance to 1e-6. Verify Rs > 0 (not zero).
+Check id0/iq0 initial conditions are finite.]
+Error using sim (line 847)
+Derivative of state 'PMSM/id' is not finite.
+Singularity likely at t=0.0012.</pre>
+    </div>
+  </div>
+
+  <h3>Seeding the oracle</h3>
+  <pre><code># Seed with 8 PMSM FOC errors (included in repo)
+python3 tests/pmsm_foc/seed_oracle.py
+
+# Learn a new error after a debugging session
+python3 - &lt;&lt; 'EOF'
+from kb.error_oracle import ErrorOracle
+oracle = ErrorOracle(store_dir='kb_store/')
+oracle.learn(
+    "Paste the exact MATLAB error text here",
+    "What fixed it — solver settings, parameter values, block changes"
+)
+print(f"Oracle now has {oracle.count()} entries")
+EOF</code></pre>
+
+  <h3>Included PMSM FOC seeds (8 pairs)</h3>
+  <p>The 8 seeded error→fix pairs cover the most common IPMSM FOC simulation failures: non-finite derivatives, algebraic loop with current sensor, torque not converging, flux linkage NaN on first step, iq saturation at low speed, incorrect Clarke transform orientation, flux weakening voltage limit exceeded, and initialization failure when Ld ≈ Lq.</p>
+
+  <div class="callout">
+    <p><strong>The oracle grows over time.</strong> Each <code>oracle.learn()</code> call appends to <code>kb_store/oracle_vectors.npz</code>. The store persists across sessions. Vectors are loaded lazily — startup time is unaffected until the first error occurs.</p>
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────────── HANDLES -->
+<section class="section" id="handles">
+  <h2>v2: Context Handles for Simulation Results</h2>
+
+  <p>Simulation results longer than 300 characters are replaced with a compact <code>SimHandle#N</code> summary. The full output is stored on disk in <code>kb_store/handles/</code>. Claude receives ~56 tokens instead of 800+ — a <strong>71% reduction</strong> on real sim outputs.</p>
+
+  <div class="before-after">
+    <div>
+      <div class="label-ba before">Before (full sim dump, ~800 chars)</div>
+      <pre>ans =
+
+  struct with fields:
+
+    tout: [2000×1 double]
+    torque: [2000×1 double]
+    speed: [2000×1 double]
+    id: [2000×1 double]
+    iq: [2000×1 double]
+    Vd: [2000×1 double]
+    Vq: [2000×1 double]
+    Tem: [2000×1 double]
+    flux_d: [2000×1 double]
+    flux_q: [2000×1 double]
+    Pcu: [2000×1 double]
+    Pfe: [2000×1 double]
+    T_winding: [2000×1 double]
+... (20+ more fields)</pre>
+    </div>
+    <div>
+      <div class="label-ba after">After (SimHandle#N, ~56 tokens)</div>
+      <pre>SimHandle#0: torque=107.6300, speed=6283.2,
+id=-12.3400, iq=45.2100, Vd=-8.4500,
+Vq=210.3200
+→ Ask 'expand SimHandle#0' for full signal data.</pre>
+    </div>
+  </div>
+
+  <h3>Retrieving a handle</h3>
+  <p>Ask Claude: <code>expand SimHandle#0</code>. The proxy intercepts this and returns the full stored output from <code>kb_store/handles/handle_0.json</code>.</p>
+
+  <h3>Handle store location</h3>
+  <pre><code>kb_store/
+  handles/
+    handle_0.json   ← full sim output, stored by proxy
+    handle_1.json
+    ...
+  .gitkeep</code></pre>
+
+  <div class="callout warn">
+    <p><strong>Handles are session-local.</strong> The handle index resets when the proxy process restarts. Handles from a previous Claude Code session cannot be expanded in a new session — start a fresh simulation to regenerate results.</p>
+  </div>
+
+  <h3>Token reduction details</h3>
+  <table>
+    <thead>
+      <tr><th>Output type</th><th>Typical chars before</th><th>After (handle)</th><th>Reduction</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Full struct sim dump (20+ fields)</td><td>~800</td><td>~56 tokens</td><td><strong>~93%</strong></td></tr>
+      <tr><td>Moderate sim output (6 signals)</td><td>~177</td><td>~86 chars</td><td><strong>71%</strong></td></tr>
+      <tr><td>Compact scalar result</td><td>&lt; 300 chars</td><td>pass-through</td><td>0% (below threshold)</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ─────────────────────────────────────────── V2 PERFORMANCE -->
+<section class="section" id="v2-performance">
+  <h2>v2 Performance Benchmark</h2>
+
+  <p>Measured on 2026-05-22. Run it yourself: <code>python3 tests/benchmark.py</code></p>
+
+  <table>
+    <thead>
+      <tr><th>Metric</th><th>Value</th><th>Notes</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>classify()</code> latency</td><td>&lt; 0.04ms</td><td>Pure regex, no I/O</td></tr>
+      <tr><td><code>route()</code> latency</td><td>&lt; 0.09ms</td><td>Type-specific pipeline</td></tr>
+      <tr><td>Oracle warm query</td><td>~7ms</td><td>Only for ERROR/WARNING types</td></tr>
+      <tr><td>Handle store</td><td>0.59ms</td><td>Pure JSON/disk write</td></tr>
+      <tr><td>Handle token reduction</td><td>71%</td><td>177→86 chars; real sim outputs ~800→56</td></tr>
+      <tr><td>Proxy overhead (non-oracle)</td><td>+0.01–0.09ms</td><td>Negligible vs MATLAB call time</td></tr>
+      <tr><td>Proxy overhead (ERROR path)</td><td>+16.7ms</td><td>Embedding cost — acceptable for debug</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Test suite</h3>
+  <p>79 unit tests across 5 modules — all passing, no MATLAB connection required:</p>
+  <pre><code>pytest tests/test_compressor.py tests/test_proxy_protocol.py \
+       tests/test_router.py tests/test_oracle.py tests/test_handles.py -v
+# 79 passed in &lt; 0.5s</code></pre>
+
+  <table>
+    <thead>
+      <tr><th>Module</th><th>Tests</th><th>Covers</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>test_compressor.py</code></td><td>27</td><td>All 14 compression rules</td></tr>
+      <tr><td><code>test_proxy_protocol.py</code></td><td>10</td><td>Content-Length framing, bypass mode, _compress_response</td></tr>
+      <tr><td><code>test_router.py</code></td><td>20</td><td>Classification accuracy + latency for all 11 types</td></tr>
+      <tr><td><code>test_oracle.py</code></td><td>10</td><td>Oracle seeding, lookup, similarity threshold, latency</td></tr>
+      <tr><td><code>test_handles.py</code></td><td>12</td><td>Handle store, retrieval, token reduction, timing</td></tr>
+    </tbody>
+  </table>
 </section>
 
 </main>

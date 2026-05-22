@@ -40,6 +40,68 @@ Validated on a 2-DOF Simscape quarter-car active suspension model (ms=400 kg, Si
 | Struct field display | **32%** |
 | **Session average** | **48–66%** |
 
+## v2 Features
+
+> **Requires:** `pip install sentence-transformers` (oracle + handles only; routing works without it)
+
+### 1. Semantic Mode Routing
+
+The proxy now classifies output type before applying compression rules — 11 types: `WHOS`, `ERROR`, `WARNING`, `TEST_RUN`, `BUILD`, `SIM_RESULT`, `PROGRESS`, `STRUCT`, `ARRAY`, `MODEL_QUERY`, `PLAIN`. Each type gets only its relevant pipeline, eliminating false positives and enabling type-specific KB lookups.
+
+### 2. Error→Fix Debugging Oracle
+
+A local vector knowledge base (BAAI/bge-small-en-v1.5, 384-dim) that maps MATLAB/Simscape error messages to known fixes. When an error matches a seeded pair (cosine similarity > 0.82), a `[ORACLE: ...]` hint is prepended to the compressed output.
+
+**Seed the oracle with 8 PMSM FOC errors:**
+```bash
+python3 tests/pmsm_foc/seed_oracle.py
+```
+
+**After a debugging session, learn new errors:**
+```python
+from kb.error_oracle import ErrorOracle
+oracle = ErrorOracle(store_dir='kb_store/')
+oracle.learn(
+    "Paste the exact MATLAB error text here",
+    "What fixed it — solver settings, parameter values, block changes"
+)
+```
+
+**Example output with oracle hint:**
+```
+[ORACLE (score=0.93): Set solver absolute tolerance to 1e-6. Verify Rs > 0...]
+Error using sim (line 847)
+Derivative of state 'PMSM/id' is not finite. Singularity likely.
+```
+
+### 3. Context Handles for Simulation Results
+
+Simulation results > 300 chars are replaced with a compact `SimHandle#N` summary and stored on disk. Claude gets ~56 tokens instead of ~800+.
+
+**Example:**
+```
+Before: 800-char signal dump (torque, speed, id, iq, Vd, Vq over 20+ lines)
+
+After:  SimHandle#0: torque=107.6300, speed=6283.2, id=-12.3400
+         → Ask 'expand SimHandle#0' for full signal data.
+```
+
+Ask Claude `expand SimHandle#0` to retrieve the full output from `kb_store/handles/`.
+
+### v2 Performance (benchmark — 2026-05-22)
+
+| Metric | Value | Notes |
+|--------|-------|-------|
+| `classify()` latency | < 0.04ms | Pure regex, no I/O |
+| `route()` latency | < 0.09ms | Type-specific pipeline |
+| Oracle warm query | ~7ms | Only for ERROR/WARNING |
+| Handle store | 0.59ms | Pure JSON/disk |
+| Handle token reduction | 71% | 177→86 chars (real sim outputs: ~800→56) |
+| Proxy overhead (non-oracle) | +0.01–0.09ms | Negligible |
+| Proxy overhead (ERROR path) | +16.7ms | Embedding cost (acceptable) |
+
+Run the benchmark yourself: `python3 tests/benchmark.py`
+
 ## How it works
 
 The proxy is a Python asyncio process. It:
@@ -75,6 +137,7 @@ Requests are never touched. The compressor is conservative — if no rule matche
 - Python 3.9+
 - `matlab-mcp-core-server` installed ([matlab/matlab-mcp-core-server](https://github.com/matlab/matlab-mcp-core-server))
 - Simulink Agentic Toolkit (for `model_edit`, `model_overview` etc.) — optional
+- `pip install sentence-transformers` — optional, only needed for v2 oracle + handles features
 
 ### 1. Clone
 
@@ -179,10 +242,14 @@ json.dump(d, open('/Users/your-user/.claude.json', 'w'), indent=2)
 ## Testing
 
 ```bash
-# Unit tests (no MATLAB needed)
+# All unit tests (no MATLAB needed)
 cd matlab-mcp-proxy
-pytest tests/test_compressor.py tests/test_proxy_protocol.py -v
-# 37 tests, ~0.02s
+pytest tests/test_compressor.py tests/test_proxy_protocol.py \
+       tests/test_router.py tests/test_oracle.py tests/test_handles.py -v
+# 79 tests total
+
+# End-to-end latency benchmark
+python3 tests/benchmark.py
 
 # Live test: quarter-car active suspension
 # See tests/quarter_car_suspension/
@@ -201,12 +268,23 @@ Use `bash install.sh --bypass` to keep the proxy running but skip all compressio
 ## Files
 
 ```
-proxy.py          — MCP stdio proxy (asyncio, stdlib only, ~210 lines)
-compressor.py     — 14 compression rules (~380 lines)
+proxy.py          — MCP stdio proxy (asyncio, stdlib only)
+compressor.py     — 14 compression rules
+router.py         — semantic mode router, 11 output types  [v2]
+kb/
+  embedder.py     — lazy-loaded bge-small-en-v1.5 embedder [v2]
+  error_oracle.py — Error→Fix vector KB, cosine similarity  [v2]
+  sim_handles.py  — SimHandle#N context handle store        [v2]
+kb_store/         — persisted oracle vectors + sim handles  [v2]
 install.sh        — patches ~/.claude.json for matlab + simulink
 tests/
   test_compressor.py       — 27 unit tests, one per rule
   test_proxy_protocol.py   — 10 protocol tests (Content-Length, bypass, etc.)
+  test_router.py           — 20 classification + timing tests     [v2]
+  test_oracle.py           — 10 oracle + latency tests            [v2]
+  test_handles.py          — 12 handle + timing/reduction tests   [v2]
+  benchmark.py             — end-to-end latency benchmark         [v2]
+  pmsm_foc/                — PMSM FOC test scripts + oracle seeds [v2]
   quarter_car_suspension/  — live Simscape validation test
 docs/
   index.html               — full HTML documentation (self-contained, offline-ready)
