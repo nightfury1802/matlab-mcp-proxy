@@ -310,3 +310,123 @@ class TestFullPipeline:
 
     def test_pipeline_never_modifies_empty_string(self):
         assert compress("") == ""
+
+
+# ── Regression tests for the 4 hardened regex patterns (PR fix/regex-hardening) ─
+
+
+class TestWhosTableHardeningR03:
+    """R03: whos header detection must not rely on 'Class' being the exact column name."""
+
+    def test_detects_standard_header(self):
+        # Existing format: "  Name      Size     Bytes  Class     Attributes"
+        text = (
+            "  Name         Size           Bytes  Class     Attributes\n"
+            "  torque       1x1                8  double\n"
+            "  speed        1x1                8  double\n"
+        )
+        out = compress_whos(text)
+        assert "torque" in out
+        assert "speed" in out
+        assert "Bytes  Class" not in out   # header itself is removed by compressor
+
+    def test_detects_hypothetical_renamed_column(self):
+        # If MathWorks renames 'Class' → 'Type' the header must still be found
+        text = (
+            "  Name         Size           Bytes  Type      Attributes\n"
+            "  torque       1x1                8  double\n"
+            "  speed        1x1                8  double\n"
+        )
+        out = compress_whos(text)
+        # With the old pattern (r'Bytes\s+Class') this would silently pass through raw.
+        # With the hardened pattern (r'Bytes\s+\w+') the table is still compressed.
+        assert "torque" in out
+        assert "speed" in out
+
+    def test_passthrough_when_no_bytes_column(self):
+        text = "No variables defined.\n"
+        assert compress_whos(text) == text
+
+
+class TestBuildOutputHardeningR07:
+    """R07: build-log detection must handle MathWorks' evolving ### markers."""
+
+    def test_classic_format_still_works(self):
+        # Original format — must not regress
+        text = (
+            "### Starting build procedure for: MyModel\n"
+            "### Successful completion of build procedure for: MyModel\n"
+            "Build duration: 0h 0m 5s\n"
+        )
+        out = compress_build_output(text)
+        assert "### Built: MyModel" in out
+        assert "Starting build procedure" not in out
+        assert "Successful completion" not in out
+
+    def test_abbreviated_starting_build_marker(self):
+        # Hypothetical future format: "### Starting build: MyModel"
+        text = (
+            "### Starting build: MyModel\n"
+            "### Build complete\n"
+            "Build duration: 0h 0m 3s\n"
+        )
+        out = compress_build_output(text)
+        assert "### Built: MyModel" in out
+        assert "Starting build:" not in out
+
+    def test_build_finished_synonym(self):
+        # Hypothetical: "### Build finished" instead of "### Successful completion"
+        text = (
+            "### Starting build procedure for: ControllerModel\n"
+            "### Build finished\n"
+            "Build duration: 0h 0m 8s\n"
+        )
+        out = compress_build_output(text)
+        assert "### Built: ControllerModel" in out
+        assert "Build finished" not in out
+
+    def test_build_succeeded_synonym(self):
+        # Hypothetical: "### Build succeeded"
+        text = (
+            "### Starting build procedure for: PlantModel\n"
+            "### Build succeeded\n"
+            "Build duration: 0h 0m 2s\n"
+        )
+        out = compress_build_output(text)
+        assert "### Built: PlantModel" in out
+        assert "Build succeeded" not in out
+
+    def test_passthrough_no_build_marker(self):
+        text = "Simulation complete.\n"
+        assert compress_build_output(text) == text
+
+
+class TestCausedByHardeningR12:
+    """R12: 'Caused by:' deduplication must match label variations."""
+
+    def test_classic_caused_by(self):
+        # Original format — must not regress
+        main_err = "Error using myfunc\nSomething went wrong.\n"
+        text = main_err + "\nCaused by:\n    Something went wrong.\n"
+        out = compress_caused_by(text)
+        # Caused-by is redundant; compressor should strip or shorten it
+        assert "Something went wrong" in out
+
+    def test_caused_by_error_variant(self):
+        # Hypothetical: "Caused by error:" label
+        main_err = "Error using myfunc\nSomething went wrong.\n"
+        text = main_err + "\nCaused by error:\n    Something went wrong.\n"
+        out = compress_caused_by(text)
+        # Must find the marker and process it (not pass through raw)
+        assert "Something went wrong" in out
+
+    def test_caused_by_with_multiple_blank_lines(self):
+        # '\n{1,2}' old pattern missed 3+ blank lines between error and Caused by
+        main_err = "Error using solve\nMatrix is singular.\n"
+        text = main_err + "\n\n\nCaused by:\n    Matrix is singular.\n"
+        out = compress_caused_by(text)
+        assert "Matrix is singular" in out
+
+    def test_passthrough_no_caused_by(self):
+        text = "Error: something failed.\n"
+        assert compress_caused_by(text) == text
