@@ -117,7 +117,7 @@ def compress_whos(text: str) -> str:
     if 'Bytes' not in text or 'Class' not in text:
         return text
     lines = text.split('\n')
-    header_idx = next((i for i, l in enumerate(lines) if re.search(r'Bytes\s+Class', l)), None)
+    header_idx = next((i for i, l in enumerate(lines) if re.search(r'Bytes\s+\w+', l)), None)
     if header_idx is None:
         return text
 
@@ -201,10 +201,11 @@ def compress_build_output(text: str) -> str:
     lines = text.split('\n')
     built, out = [], []
     for line in lines:
-        m = re.match(r'### Starting build procedure for: (.+)', line)
+        m = re.match(r'###\s+(?:Starting build(?:\s+procedure(?:\s+for)?)?)[:\s]+(.+)', line)
         if m:
             built.append(m.group(1).strip())
-        elif re.match(r'### Successful completion', line) or re.match(r'### Starting serial', line):
+        elif re.match(r'###\s+(?:Successful completion|Build\s+(?:complete|finished|succeeded))', line) \
+                or re.match(r'###\s+Starting serial', line):
             pass
         else:
             out.append(line)
@@ -224,8 +225,8 @@ def compress_progress_lines(text: str) -> str:
     lines = text.split('\n')
 
     def normalize(line):
+        # Collapse whitespace BEFORE replacing numbers — fixes "  1/" vs " 10/"
         collapsed = re.sub(r'\s+', ' ', line.strip())
-        collapsed = re.sub(r'\s*=\s*', '=', collapsed)   # "Tref= 50" == "Tref=107"
         return re.sub(r'[\d.]+', 'N', collapsed)
 
     result = []
@@ -306,7 +307,7 @@ def compress_sim_error_boilerplate(text: str) -> str:
 # ── RULE 12: Deduplicate "Caused by:" when it repeats the main error ─────────
 def compress_caused_by(text: str) -> str:
     # "Caused by:" may be preceded by blank line — match both forms
-    m = re.search(r'\n{1,2}Caused by:\n', text)
+    m = re.search(r'\n+(?:Caused by|Caused by error)[:\s]*\n', text)
     if not m:
         return text
     main  = text[:m.start()]
@@ -378,7 +379,6 @@ def _shorten(path: str) -> str:
 
 
 # ── PIPELINE ─────────────────────────────────────────────────────────────────
-# Legacy: previously iterated by compress(). Now pipeline dispatch is in router.py.
 RULES = [
     ("sim_error_boilerplate", compress_sim_error_boilerplate),
     ("repeated_warnings",     compress_repeated_warnings),
@@ -397,10 +397,9 @@ RULES = [
 ]
 
 def compress(text: str) -> str:
-    """Entry point. Routes to type-specific pipeline via router.py."""
-    from router import route
-    compressed, _ = route(text)
-    return compressed
+    for _, rule in RULES:
+        text = rule(text)
+    return text
 
 def ratio(original: str, compressed: str) -> str:
     o, c = len(original), len(compressed)
