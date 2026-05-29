@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
 # install.sh — patches ~/.claude.json (Claude Code's MCP config) to enable/disable proxy.
 #
-# ROOT CAUSE & FIX (discovered 2026-05-20):
-#   matlab-mcp-core-server --matlab-session-mode=existing retries for 30 seconds
-#   waiting for the MATLAB Connector on the port written by the matlab server.
-#   Without --initialize-matlab-on-startup=true, MATLAB starts lazily (on first
-#   tool call) and the 30s window expires before MATLAB is ready → attach fails.
-#   Adding --initialize-matlab-on-startup=true starts MATLAB eagerly (~15-20s),
-#   within the 30s discovery window → shared session connects reliably.
+# Requires matlab-mcp-core-server v0.10.0+ (github.com/matlab/matlab-mcp-core-server).
+# v0.10.0 introduced --matlab-session-mode=auto (now the default) which starts MATLAB
+# automatically if no session is found, fixing the 30-second attach-window issue (#62).
+# The old --initialize-matlab-on-startup=true / --matlab-session-mode=existing workaround
+# is no longer needed.
+#
+# NOTE — macOS 26 (Sequoia 2026) codesigning:
+#   The upstream binary must be ad-hoc re-signed after download on macOS 26+.
+#   This script does it automatically if MATLAB_MCP_SERVER is set to the binary path.
+#   Run: codesign --force --deep --sign - /path/to/matlab-mcp-core-server
 #
 # CONFIG FILE: ~/.claude.json  (NOT claude_desktop_config.json — that's Claude Desktop)
 #
 # Architecture:
-#   matlab   → proxy → core-server --initialize-matlab-on-startup=true (starts MATLAB)
-#   simulink → proxy → core-server --matlab-session-mode=existing      (attaches, 30s window)
-#   Both share the same MATLAB session via connector.securePort.
+#   matlab   → proxy → core-server (auto session mode — starts or attaches to MATLAB)
+#   simulink → proxy → core-server (auto session mode — attaches to same MATLAB session)
+#   Both share the same MATLAB session.
 #
 # Usage:
 #   bash install.sh             # enable proxy, compression active
@@ -58,14 +61,12 @@ cfg, upstream, toolkit, workdir, mroot = sys.argv[1:]
 with open(cfg) as f: d = json.load(f)
 d['mcpServers']['matlab'] = {
     "command": upstream,
-    "args": ["--initial-working-folder", workdir, "--matlab-root", mroot,
-             "--initialize-matlab-on-startup=true"],
+    "args": ["--initial-working-folder", workdir, "--matlab-root", mroot],
     "env": {}, "type": "stdio"
 }
 d['mcpServers']['simulink'] = {
     "command": upstream,
-    "args": [f"--matlab-session-mode=existing",
-             f"--extension-file={toolkit}/tools/tools.json"],
+    "args": [f"--extension-file={toolkit}/tools/tools.json"],
     "env": {}, "type": "stdio"
 }
 with open(cfg, 'w') as f: json.dump(d, f, indent=2)
@@ -86,10 +87,8 @@ def entry(extra):
 d['mcpServers']['matlab'] = entry([
     "--initial-working-folder", workdir,
     "--matlab-root", mroot,
-    "--initialize-matlab-on-startup=true"   # start MATLAB eagerly for simulink attach
 ])
 d['mcpServers']['simulink'] = entry([
-    "--matlab-session-mode=existing",       # attaches within 30s discovery window
     f"--extension-file={toolkit}/tools/tools.json"
 ])
 with open(cfg, 'w') as f: json.dump(d, f, indent=2)
@@ -101,7 +100,6 @@ fi
 echo ""
 echo "─────────────────────────────────────────────────────────────"
 echo " Restart Claude Code for changes to take effect"
-echo " MATLAB will start automatically (~15-20s after launch)"
-echo " simulink server attaches within 30s discovery window"
+echo " MATLAB will start automatically (auto session mode)"
 echo " Verify: /mcp — both 'matlab' and 'simulink' should connect"
 echo "─────────────────────────────────────────────────────────────"
