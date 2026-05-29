@@ -261,3 +261,99 @@ class TestProtocolVersionGuard:
         with caplog.at_level(logging.WARNING, logger="matlab-proxy"):
             px._check_protocol_version(msg)
         assert not any("outside tested range" in r.message for r in caplog.records)
+
+
+class TestOracleResources:
+    @pytest.fixture(autouse=True)
+    def seed_oracle(self):
+        """Seed a minimal oracle so tests have data to work with."""
+        import proxy as px
+        oracle = px._get_oracle()
+        oracle.learn(
+            "Error using sim\nDerivative of state is not finite.",
+            "Add Mechanical Rotational Reference block."
+        )
+        oracle.learn(
+            "Error: Simscape initialization error. Algebraic loop detected.",
+            "Add a Solver Configuration block with local solver enabled."
+        )
+        yield
+
+    def test_resources_list_augmented_with_oracle_entries(self):
+        import proxy as px
+        upstream_response = {
+            "jsonrpc": "2.0", "id": 5,
+            "result": {"resources": [{"uri": "matlab://workspace", "name": "Workspace"}]}
+        }
+        augmented = px._augment_resources_list(upstream_response)
+        uris = [r["uri"] for r in augmented["result"]["resources"]]
+        assert any(u.startswith("oracle://") for u in uris)
+
+    def test_resources_list_unchanged_when_oracle_empty(self, monkeypatch):
+        import proxy as px
+        # Empty oracle
+        monkeypatch.setattr("proxy._get_oracle", lambda: type("E", (), {"list_all": lambda s: []})())
+        upstream_response = {
+            "jsonrpc": "2.0", "id": 5,
+            "result": {"resources": [{"uri": "matlab://workspace", "name": "Workspace"}]}
+        }
+        result = px._augment_resources_list(upstream_response)
+        # Should be unchanged (no oracle entries to add)
+        assert result == upstream_response
+
+    def test_handle_oracle_read_recent_returns_kb_content(self):
+        import proxy as px
+        req = {
+            "jsonrpc": "2.0", "id": 7,
+            "method": "resources/read",
+            "params": {"uri": "oracle://errors/recent"}
+        }
+        response = px._handle_oracle_read(req)
+        assert response["id"] == 7
+        assert "result" in response
+        contents = response["result"]["contents"]
+        assert len(contents) == 1
+        text = contents[0]["text"]
+        # Should contain oracle entries
+        assert "Oracle KB" in text or "Mechanical Rotational Reference" in text
+
+    def test_handle_oracle_read_query_returns_match(self):
+        import proxy as px
+        from urllib.parse import quote_plus
+        query = quote_plus("Derivative of state is not finite")
+        req = {
+            "jsonrpc": "2.0", "id": 8,
+            "method": "resources/read",
+            "params": {"uri": f"oracle://errors/query/{query}"}
+        }
+        response = px._handle_oracle_read(req)
+        assert response["id"] == 8
+        text = response["result"]["contents"][0]["text"]
+        # Should contain the fix
+        assert "Mechanical Rotational Reference" in text or "score=" in text
+
+    def test_handle_oracle_read_graceful_no_match(self):
+        import proxy as px
+        from urllib.parse import quote_plus
+        query = quote_plus("completely unknown error xyz123abc")
+        req = {
+            "jsonrpc": "2.0", "id": 9,
+            "method": "resources/read",
+            "params": {"uri": f"oracle://errors/query/{query}"}
+        }
+        response = px._handle_oracle_read(req)
+        assert "result" in response
+        assert isinstance(response["result"]["contents"], list)
+        assert len(response["result"]["contents"]) == 1
+
+    def test_handle_oracle_read_unknown_uri_returns_help(self):
+        import proxy as px
+        req = {
+            "jsonrpc": "2.0", "id": 10,
+            "method": "resources/read",
+            "params": {"uri": "oracle://errors/unknown-path"}
+        }
+        response = px._handle_oracle_read(req)
+        text = response["result"]["contents"][0]["text"]
+        assert "oracle://errors/recent" in text
+        assert "oracle://errors/query" in text

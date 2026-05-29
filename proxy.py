@@ -106,6 +106,7 @@ def _check_kb_staleness() -> "str | None":
 
 _oracle = None
 _handle_store = None
+_pending_methods: dict = {}  # request_id → method name, tracks in-flight requests
 
 def _get_handle_store():
     global _handle_store
@@ -253,28 +254,133 @@ def _serialize(frame: _Frame, payload: bytes) -> bytes:
         return payload if payload.endswith(b"\n") else payload + b"\n"
 
 
+# ── oracle MCP resource helpers ──────────────────────────────────────────────
+
+def _augment_resources_list(msg: dict) -> dict:
+    """Inject oracle resource entries into a resources/list MCP response."""
+    try:
+        result = msg.get("result", {})
+        resources = result.get("resources")
+        if not isinstance(resources, list):
+            return msg
+        oracle = _get_oracle()
+        entries = oracle.list_all()
+        if not entries:
+            return msg
+        oracle_resources = [
+            {
+                "uri": "oracle://errors/recent",
+                "name": f"Error Oracle — {len(entries)} known fixes",
+                "description": (
+                    "Known MATLAB/Simscape errors with verified fixes. "
+                    "Read oracle://errors/recent for all, or "
+                    "oracle://errors/query/<url-encoded-error-text> for nearest-match lookup."
+                ),
+                "mimeType": "text/plain",
+            }
+        ]
+        msg["result"]["resources"] = resources + oracle_resources
+    except Exception:
+        pass
+    return msg
+
+
+def _handle_oracle_read(req: dict) -> dict:
+    """Handle oracle://errors/* resource reads directly without forwarding to upstream."""
+    req_id = req.get("id")
+    uri = req.get("params", {}).get("uri", "")
+
+    def _make_response(text: str) -> dict:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {
+                "contents": [{"uri": uri, "mimeType": "text/plain", "text": text}]
+            }
+        }
+
+    try:
+        oracle = _get_oracle()
+
+        if uri == "oracle://errors/recent":
+            entries = oracle.list_all()
+            if not entries:
+                return _make_response("Oracle KB is empty — no errors have been learned yet.")
+            lines = [
+                f"[{i}] {e.get('handle', e.get('error', ''))[:120]}\n    Fix: {e.get('fix', '')[:200]}"
+                for i, e in enumerate(entries[-20:])
+            ]
+            return _make_response(
+                f"Oracle KB — {len(entries)} entries (showing last 20):\n\n" + "\n\n".join(lines)
+            )
+
+        if "/query/" in uri:
+            from urllib.parse import unquote_plus
+            query = unquote_plus(uri.split("/query/", 1)[1])
+            result = oracle.query(query)
+            if result is None:
+                return _make_response(
+                    f"No match found for: {query[:200]!r}\n\n"
+                    f"Try broader terms or check oracle://errors/recent."
+                )
+            fix, score = result
+            return _make_response(f"Oracle match (score={score:.2f}):\n\n{fix}")
+
+        return _make_response(
+            "Oracle URI formats:\n"
+            "  oracle://errors/recent          — list last 20 known fixes\n"
+            "  oracle://errors/query/<encoded> — URL-encoded error text lookup"
+        )
+    except Exception as exc:
+        return _make_response(f"Oracle error: {exc!r}")
+
+
 # ── forwarding coroutines ─────────────────────────────────────────────────────
 
 async def _forward_requests(stdin_reader: asyncio.StreamReader,
                              proc_stdin: asyncio.StreamWriter):
-    """Claude → proxy → upstream: pass requests through unchanged."""
+    """Claude → proxy → upstream: pass requests through, short-circuit oracle reads."""
     while True:
         frame, payload = await _read_message(stdin_reader)
         if frame is None:
             break
+        try:
+            req = json.loads(payload.decode())
+            req_id = req.get("id")
+            method = req.get("method", "")
+            if req_id is not None:
+                _pending_methods[req_id] = method
+            # Short-circuit oracle resource reads — handle locally
+            if method == "resources/read":
+                uri = req.get("params", {}).get("uri", "")
+                if uri.startswith("oracle://"):
+                    response = _handle_oracle_read(req)
+                    out = json.dumps(response, separators=(",", ":")).encode()
+                    sys.stdout.buffer.write(_serialize(frame, out))
+                    sys.stdout.buffer.flush()
+                    if req_id is not None:
+                        _pending_methods.pop(req_id, None)
+                    continue
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            pass
         proc_stdin.write(_serialize(frame, payload))
         await proc_stdin.drain()
     proc_stdin.close()
 
 
 async def _forward_responses(proc_stdout: asyncio.StreamReader, bypass: bool):
-    """upstream → proxy (compress) → Claude stdout."""
+    """upstream → proxy (compress + augment) → Claude stdout."""
     while True:
         frame, payload = await _read_message(proc_stdout)
         if frame is None:
             break
         try:
-            msg         = json.loads(payload.decode())
+            msg     = json.loads(payload.decode())
+            # Augment resources/list with oracle entries
+            req_id  = msg.get("id")
+            method  = _pending_methods.pop(req_id, "") if req_id is not None else ""
+            if method == "resources/list":
+                msg = _augment_resources_list(msg)
             _check_protocol_version(msg)          # warn if server version outside 0.x range
             msg         = _compress_response(msg, bypass)
             out_payload = json.dumps(msg, separators=(",", ":")).encode()
