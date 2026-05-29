@@ -129,6 +129,26 @@ class TestFloatPreservation:
         out = px._compress_response(msg, bypass=False)
         assert out["result"]["content"][0]["text"] == "actual = 0.0847\n"
 
+    def test_oracle_hint_not_suppressed_by_float_check(self, tmp_path, monkeypatch):
+        """Oracle hint must survive even though hint contains score=0.XX float not in original."""
+        import proxy as px
+        from kb.error_oracle import ErrorOracle
+        from router import OutputType
+        # Seed isolated oracle with a known fix
+        isolated = ErrorOracle(store_dir=str(tmp_path))
+        isolated.learn(
+            "Error using sim\nDerivative of state is not finite.",
+            "Add Mechanical Rotational Reference block."
+        )
+        monkeypatch.setattr(px, "_oracle", isolated)
+        # Build a message that will trigger oracle lookup (ERROR type)
+        error_text = "Error using sim\nDerivative of state is not finite."
+        msg = {"id": "1", "result": {"content": [{"type": "text", "text": error_text}]}}
+        out = px._compress_response(msg, bypass=False)
+        result_text = out["result"]["content"][0]["text"]
+        # Oracle hint MUST appear — it must not be suppressed by the float integrity check
+        assert "Mechanical Rotational Reference" in result_text or "ORACLE" in result_text or "score=" in result_text
+
 
 class TestKBStaleness:
     @pytest.fixture(autouse=True)

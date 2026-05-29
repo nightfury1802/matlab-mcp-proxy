@@ -166,7 +166,22 @@ def _compress_response(msg: dict, bypass: bool) -> dict:
                 continue
             original = item["text"]
             compressed, otype = route(original)
-            # Append oracle hint for errors/warnings
+
+            # Float integrity check — run BEFORE prepending oracle hints
+            # (oracle hints contain score=0.XX floats not in original, which would falsely trigger)
+            if compressed != original:
+                corrupted_float = _floats_preserved(original, compressed)
+                if corrupted_float is not None:
+                    log.warning(
+                        f"Float integrity check failed — value {corrupted_float!r} in compressed "
+                        f"not found in original ({len(original)} chars). Check compressor rules."
+                    )
+                    compressed = original
+                else:
+                    pct = (1 - len(compressed) / len(original)) * 100
+                    log.debug(f"Compressed {len(original)}→{len(compressed)} chars ({pct:.0f}%)")
+
+            # Only augment with oracle/handle data after float check passes
             if otype in (_OutputType.ERROR, _OutputType.WARNING):
                 oracle = _get_oracle()
                 hint = oracle.format_hint(original)
@@ -180,17 +195,6 @@ def _compress_response(msg: dict, bypass: bool) -> dict:
                 handle_id, summary = hs.store(original)
                 if handle_id:
                     compressed = hs.format_for_context(handle_id, summary)
-            if compressed != original:
-                corrupted_float = _floats_preserved(original, compressed)
-                if corrupted_float is not None:
-                    log.warning(
-                        f"Float integrity check failed — value {corrupted_float!r} in compressed "
-                        f"not found in original ({len(original)} chars). Check compressor rules."
-                    )
-                    compressed = original
-                else:
-                    pct = (1 - len(compressed) / len(original)) * 100
-                    log.debug(f"Compressed {len(original)}→{len(compressed)} chars ({pct:.0f}%)")
             # Inject KB staleness note (once per proxy session, first text content item)
             staleness_note = _check_kb_staleness()
             if staleness_note:
