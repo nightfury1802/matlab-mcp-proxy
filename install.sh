@@ -15,9 +15,14 @@
 # CONFIG FILE: ~/.claude.json  (NOT claude_desktop_config.json — that's Claude Desktop)
 #
 # Architecture:
-#   matlab   → proxy → core-server (auto session mode — starts or attaches to MATLAB)
-#   simulink → proxy → core-server (auto session mode — attaches to same MATLAB session)
+#   matlab   → proxy → core-server (auto mode — starts MATLAB on first tool call)
+#   simulink → proxy → core-server --matlab-session-mode=existing (attaches to same session)
 #   Both share the same MATLAB session.
+#
+#   Note: simulink still needs --matlab-session-mode=existing to attach to the matlab
+#   server's session rather than start an independent one. v0.10.0's benefit: existing
+#   mode now starts MATLAB as a fallback if the attach poll times out, so the server
+#   never permanently fails even if timing is off.
 #
 # Usage:
 #   bash install.sh             # enable proxy, compression active
@@ -66,7 +71,8 @@ d['mcpServers']['matlab'] = {
 }
 d['mcpServers']['simulink'] = {
     "command": upstream,
-    "args": [f"--extension-file={toolkit}/tools/tools.json"],
+    "args": ["--matlab-session-mode=existing",
+             f"--extension-file={toolkit}/tools/tools.json"],
     "env": {}, "type": "stdio"
 }
 with open(cfg, 'w') as f: json.dump(d, f, indent=2)
@@ -89,6 +95,7 @@ d['mcpServers']['matlab'] = entry([
     "--matlab-root", mroot,
 ])
 d['mcpServers']['simulink'] = entry([
+    "--matlab-session-mode=existing",       # attach to matlab server's session (not start a new one)
     f"--extension-file={toolkit}/tools/tools.json"
 ])
 with open(cfg, 'w') as f: json.dump(d, f, indent=2)

@@ -240,6 +240,7 @@ After running `install.sh`, `~/.claude.json` looks like this:
       "args": [
         "/path/to/matlab-mcp-proxy/proxy.py",
         "--upstream", "/path/to/matlab-mcp-core-server",
+        "--matlab-session-mode=existing",
         "--extension-file=/path/to/simulink-agentic-toolkit/tools/tools.json"
       ],
       "env": {}, "type": "stdio"
@@ -257,7 +258,7 @@ After running `install.sh`, `~/.claude.json` looks like this:
 
 Previously, `--matlab-session-mode=existing` polled for 30 seconds and expired before MATLAB was ready. The workaround was `--initialize-matlab-on-startup=true` on the `matlab` server to start MATLAB eagerly.
 
-**Fixed in [matlab-mcp-core-server v0.10.0](https://github.com/matlab/matlab-mcp-core-server/releases/tag/v0.10.0)** via the new `auto` session mode (now the default). Both servers start or attach to MATLAB automatically — no workaround flags needed.
+**Partially improved in [matlab-mcp-core-server v0.10.0](https://github.com/matlab/matlab-mcp-core-server/releases/tag/v0.10.0)**: `existing` mode now starts MATLAB as a fallback if no session is found, so the `simulink` server no longer permanently fails if timing is off. The `simulink` server still uses `--matlab-session-mode=existing` to attach to the `matlab` server's session rather than starting an independent MATLAB instance. The `--initialize-matlab-on-startup=true` workaround is no longer needed since `existing` mode recovers gracefully.
 
 > **macOS 26+ note:** The v0.10.0 binary requires an ad-hoc re-sign after download:
 > ```bash
