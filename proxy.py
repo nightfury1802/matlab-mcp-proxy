@@ -350,6 +350,14 @@ async def _forward_requests(stdin_reader: asyncio.StreamReader,
             method = req.get("method", "")
             if req_id is not None:
                 _pending_methods[req_id] = method
+                # Evict oldest entry if dict grows too large (defensive: dropped responses)
+                if len(_pending_methods) > 1000:
+                    oldest = next(iter(_pending_methods))
+                    _pending_methods.pop(oldest, None)
+                    log.warning(
+                        f"_pending_methods exceeded 1000 entries — evicted oldest ({oldest!r}). "
+                        f"Upstream may be dropping responses."
+                    )
             # Short-circuit oracle resource reads — handle locally
             if method == "resources/read":
                 uri = req.get("params", {}).get("uri", "")

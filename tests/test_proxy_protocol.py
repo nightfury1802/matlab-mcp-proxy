@@ -265,19 +265,23 @@ class TestProtocolVersionGuard:
 
 class TestOracleResources:
     @pytest.fixture(autouse=True)
-    def seed_oracle(self):
-        """Seed a minimal oracle so tests have data to work with."""
+    def seed_oracle(self, tmp_path, monkeypatch):
+        """Seed an isolated oracle in tmp_path — never writes to production kb_store/."""
+        from kb.error_oracle import ErrorOracle
         import proxy as px
-        oracle = px._get_oracle()
-        oracle.learn(
+        isolated = ErrorOracle(store_dir=str(tmp_path))
+        isolated.learn(
             "Error using sim\nDerivative of state is not finite.",
             "Add Mechanical Rotational Reference block."
         )
-        oracle.learn(
+        isolated.learn(
             "Error: Simscape initialization error. Algebraic loop detected.",
             "Add a Solver Configuration block with local solver enabled."
         )
-        yield
+        # Patch the module-level singleton so all proxy functions use this isolated oracle
+        monkeypatch.setattr(px, "_oracle", isolated)
+        yield isolated
+        # monkeypatch auto-restores _oracle after each test
 
     def test_resources_list_augmented_with_oracle_entries(self):
         import proxy as px
@@ -291,14 +295,16 @@ class TestOracleResources:
 
     def test_resources_list_unchanged_when_oracle_empty(self, monkeypatch):
         import proxy as px
-        # Empty oracle
-        monkeypatch.setattr("proxy._get_oracle", lambda: type("E", (), {"list_all": lambda s: []})())
+        from kb.error_oracle import ErrorOracle
+        # Override with a truly empty oracle (seed_oracle autouse already ran, this overrides it)
+        class _EmptyOracle:
+            def list_all(self): return []
+        monkeypatch.setattr(px, "_oracle", _EmptyOracle())
         upstream_response = {
             "jsonrpc": "2.0", "id": 5,
             "result": {"resources": [{"uri": "matlab://workspace", "name": "Workspace"}]}
         }
         result = px._augment_resources_list(upstream_response)
-        # Should be unchanged (no oracle entries to add)
         assert result == upstream_response
 
     def test_handle_oracle_read_recent_returns_kb_content(self):
@@ -329,8 +335,9 @@ class TestOracleResources:
         response = px._handle_oracle_read(req)
         assert response["id"] == 8
         text = response["result"]["contents"][0]["text"]
-        # Should contain the fix
-        assert "Mechanical Rotational Reference" in text or "score=" in text
+        # score= is unconditionally in the format string; also verify content is from a seeded entry
+        assert "score=" in text
+        assert "Mechanical Rotational Reference" in text or "Solver Configuration" in text or "match" in text.lower()
 
     def test_handle_oracle_read_graceful_no_match(self):
         import proxy as px
