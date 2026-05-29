@@ -36,10 +36,39 @@ PROXY_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROXY_PATH="$PROXY_DIR/proxy.py"
 CONFIG="$HOME/.claude.json"
 
-UPSTREAM="/Users/soorajkrishnan/.local/bin/matlab-mcp-core-server"
-TOOLKIT="/Users/soorajkrishnan/simscape-agent/simulink-agentic-toolkit"
-WORKDIR="/Users/soorajkrishnan/simscape-agent/work"
-MATLAB_ROOT="/Applications/MATLAB_R2025a.app"
+# Auto-detect upstream MCP binary (override with: UPSTREAM=/path/to/binary ./install.sh)
+if [ -z "${UPSTREAM:-}" ]; then
+    UPSTREAM=$(command -v matlab-mcp-core-server 2>/dev/null || true)
+    if [ -z "$UPSTREAM" ] && [ -x "$HOME/.local/bin/matlab-mcp-core-server" ]; then
+        UPSTREAM="$HOME/.local/bin/matlab-mcp-core-server"
+    fi
+    if [ -z "$UPSTREAM" ]; then
+        echo "ERROR: matlab-mcp-core-server not found in PATH or ~/.local/bin."
+        echo "  Install via: npm install -g @mathworks/matlab-mcp-server"
+        echo "  Or set: UPSTREAM=/path/to/matlab-mcp-core-server $0"
+        exit 1
+    fi
+fi
+echo "Using upstream binary: $UPSTREAM"
+
+# Auto-detect MATLAB root (override with: MATLAB_ROOT=/Applications/MATLAB_Rxxxx.app ./install.sh)
+if [ -z "${MATLAB_ROOT:-}" ]; then
+    MATLAB_ROOT=$(ls -d /Applications/MATLAB_R*.app 2>/dev/null | sort -rV | head -1 || true)
+    if [ -z "$MATLAB_ROOT" ]; then
+        echo "ERROR: MATLAB not found in /Applications/MATLAB_R*.app"
+        echo "  Or set: MATLAB_ROOT=/Applications/MATLAB_R2025a.app $0"
+        exit 1
+    fi
+fi
+echo "Using MATLAB root: $MATLAB_ROOT"
+
+# Auto-detect toolkit and workdir relative to proxy location
+if [ -z "${TOOLKIT:-}" ]; then
+    TOOLKIT="$(cd "$PROXY_DIR/.." && pwd)/simulink-agentic-toolkit"
+fi
+if [ -z "${WORKDIR:-}" ]; then
+    WORKDIR="$(cd "$PROXY_DIR/.." && pwd)/work"
+fi
 
 BYPASS=false
 UNINSTALL=false
