@@ -293,6 +293,9 @@ def main() -> None:
     upstream_cmd = [args.upstream] + upstream_args
     log.info(f"upstream: {' '.join(upstream_cmd)}")
     log.info(f"compression: {'DISABLED' if args.bypass else 'ENABLED'}")
+    if not args.bypass:
+        import selftest
+        selftest.run_startup_checks()   # exits 1 with diagnostics if broken
     asyncio.run(run(upstream_cmd, args.bypass))
 
 
