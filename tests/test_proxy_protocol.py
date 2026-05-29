@@ -4,6 +4,7 @@ No subprocess required — tests the compression intercept in isolation.
 Run: pytest tests/test_proxy_protocol.py -v
 """
 import sys, os
+import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from proxy import _compress_response
 
@@ -127,6 +128,68 @@ class TestFloatPreservation:
         msg = {"id": "1", "result": {"content": [{"type": "text", "text": "actual = 0.0847\n"}]}}
         out = px._compress_response(msg, bypass=False)
         assert out["result"]["content"][0]["text"] == "actual = 0.0847\n"
+
+
+class TestKBStaleness:
+    @pytest.fixture(autouse=True)
+    def reset_kb_flag(self):
+        import proxy as px
+        px._kb_staleness_warned = False
+        yield
+        px._kb_staleness_warned = False
+
+    def test_staleness_warning_fires_when_over_10_entries(self, tmp_path, monkeypatch):
+        """Staleness note injected into first tool result when >10 pending errors."""
+        import proxy as px
+        fake_pending = tmp_path / "pending_errors.jsonl"
+        fake_pending.write_text("\n".join([f'{{"error":"err{i}"}}' for i in range(11)]) + "\n")
+        monkeypatch.setattr("proxy._get_pending_path", lambda: str(fake_pending))
+        note = px._check_kb_staleness()
+        assert note is not None
+        assert "11" in note
+        assert "pending_errors.jsonl" in note
+
+    def test_staleness_warning_fires_only_once(self, tmp_path, monkeypatch):
+        """After first call, _check_kb_staleness returns None."""
+        import proxy as px
+        fake_pending = tmp_path / "pending_errors.jsonl"
+        fake_pending.write_text("\n".join([f'{{"error":"err{i}"}}' for i in range(11)]) + "\n")
+        monkeypatch.setattr("proxy._get_pending_path", lambda: str(fake_pending))
+        px._check_kb_staleness()  # first call fires
+        note2 = px._check_kb_staleness()  # second call must be None
+        assert note2 is None
+
+    def test_no_staleness_warning_under_10_entries(self, tmp_path, monkeypatch):
+        """No warning when pending_errors.jsonl has <=10 entries."""
+        import proxy as px
+        fake_pending = tmp_path / "pending_errors.jsonl"
+        fake_pending.write_text("\n".join([f'{{"error":"err{i}"}}' for i in range(5)]) + "\n")
+        monkeypatch.setattr("proxy._get_pending_path", lambda: str(fake_pending))
+        note = px._check_kb_staleness()
+        assert note is None
+
+    def test_staleness_note_prepended_to_compressed_output(self, tmp_path, monkeypatch):
+        """_compress_response prepends staleness note to first text result."""
+        import proxy as px
+        fake_pending = tmp_path / "pending_errors.jsonl"
+        fake_pending.write_text("\n".join([f'{{"error":"err{i}"}}' for i in range(11)]) + "\n")
+        monkeypatch.setattr("proxy._get_pending_path", lambda: str(fake_pending))
+        msg = make_tool_result(WHOS_TEXT)
+        out = px._compress_response(msg, bypass=False)
+        text = out["result"]["content"][0]["text"]
+        assert text.startswith("[proxy-kb] WARNING:")
+        assert "pending_errors.jsonl" in text
+
+    def test_staleness_note_not_injected_on_bypass(self, tmp_path, monkeypatch):
+        """bypass=True skips staleness check entirely."""
+        import proxy as px
+        fake_pending = tmp_path / "pending_errors.jsonl"
+        fake_pending.write_text("\n".join([f'{{"error":"err{i}"}}' for i in range(11)]) + "\n")
+        monkeypatch.setattr("proxy._get_pending_path", lambda: str(fake_pending))
+        msg = make_tool_result(WHOS_TEXT)
+        out = px._compress_response(msg, bypass=True)
+        text = out["result"]["content"][0]["text"]
+        assert "[proxy-kb]" not in text
 
 
 class TestProtocolVersionGuard:

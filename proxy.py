@@ -77,6 +77,33 @@ def _check_protocol_version(msg: dict) -> None:
     except Exception:
         pass
 
+_kb_staleness_warned = False
+
+def _get_pending_path() -> str:
+    return _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'kb_store', 'pending_errors.jsonl')
+
+def _check_kb_staleness() -> "str | None":
+    """Return a one-line warning if pending_errors.jsonl has >10 unprocessed entries.
+
+    Called once per proxy session on the first tool result. Stays silent after that.
+    """
+    global _kb_staleness_warned
+    if _kb_staleness_warned:
+        return None
+    _kb_staleness_warned = True  # set early, even if we error out
+    try:
+        path = _get_pending_path()
+        with open(path) as f:
+            count = sum(1 for _ in f)
+        if count > 10:
+            return (
+                f"[proxy-kb] WARNING: {count} unseen errors in pending_errors.jsonl — "
+                f"run `python3 kb/auto_learn.py` to drain (runs auto at session end)\n"
+            )
+    except Exception:
+        pass
+    return None
+
 _oracle = None
 _handle_store = None
 
@@ -163,6 +190,10 @@ def _compress_response(msg: dict, bypass: bool) -> dict:
                 else:
                     pct = (1 - len(compressed) / len(original)) * 100
                     log.debug(f"Compressed {len(original)}→{len(compressed)} chars ({pct:.0f}%)")
+            # Inject KB staleness note (once per proxy session, first text content item)
+            staleness_note = _check_kb_staleness()
+            if staleness_note:
+                compressed = staleness_note + compressed
             item["text"] = compressed
     except (KeyError, TypeError, AttributeError):
         pass
