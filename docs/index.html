@@ -346,6 +346,9 @@
     <a href="#oracle">Error→Fix Oracle</a>
     <a href="#handles">Sim Result Handles</a>
     <a href="#v2-performance">Performance &amp; Stats</a>
+
+    <div class="section-label">Hardening (v3)</div>
+    <a href="#hardening">v3: Hardening</a>
   </nav>
 </aside>
 
@@ -501,6 +504,7 @@ reduction: 48-82%  ·  REQUEST path: Claude to upstream UNCHANGED
       <pre><code>cd /Users/soorajkrishnan/simscape-agent/matlab-mcp-proxy
 bash install.sh</code></pre>
       <p><code>install.sh</code> patches <code>~/Library/Application Support/Claude/claude_desktop_config.json</code> to route the <code>matlab</code> MCP entry through the proxy. It saves a backup as <code>claude_desktop_config.json.bak</code>.</p>
+      <p><code>install.sh</code> auto-detects the upstream binary (<code>matlab-mcp-core-server</code>), MATLAB root, toolkit path, and workdir — no hardcoded paths. All four can be overridden via env vars (<code>UPSTREAM=</code>, <code>MATLAB_ROOT=</code>, etc.).</p>
     </li>
 
     <li>
@@ -1508,6 +1512,12 @@ python3 kb/learn.py</code></pre>
   <div class="callout">
     <p>The store persists across sessions (<code>kb_store/errors.json</code> + <code>errors.npy</code>). Vectors are loaded lazily — startup time is unaffected until the first error/warning occurs.</p>
   </div>
+
+  <h3>Query the oracle via MCP resources</h3>
+  <p>Claude can query the oracle mid-session using MCP resource reads — no inline injection needed:</p>
+  <pre><code>oracle://errors/recent                    — last 20 known error→fix pairs
+oracle://errors/query/&lt;url-encoded-text&gt;  — nearest-match lookup by error text</code></pre>
+  <p>The proxy intercepts these <code>resources/read</code> requests and answers them locally without forwarding to the upstream MCP server. Claude sees these in the <code>resources/list</code> response automatically.</p>
 </section>
 
 <!-- ─────────────────────────────────────────────── HANDLES -->
@@ -1628,22 +1638,60 @@ python3 kb/learn.py</code></pre>
   </table>
 
   <h3>Test suite</h3>
-  <p>79 unit tests across 5 modules — all passing, no MATLAB required:</p>
+  <p>112 unit tests across 5 modules — all passing, no MATLAB required:</p>
   <pre><code>pytest tests/test_compressor.py tests/test_proxy_protocol.py \
        tests/test_router.py tests/test_oracle.py tests/test_handles.py -v
-# 79 passed</code></pre>
+# 112 passed</code></pre>
   <table>
     <thead>
       <tr><th>Module</th><th>Tests</th><th>Covers</th></tr>
     </thead>
     <tbody>
-      <tr><td><code>test_compressor.py</code></td><td>27</td><td>All 14 compression rules + pipeline</td></tr>
-      <tr><td><code>test_proxy_protocol.py</code></td><td>10</td><td>Content-Length framing, bypass mode</td></tr>
+      <tr><td><code>test_compressor.py</code></td><td>39</td><td>All 14 compression rules + hardening regression tests</td></tr>
+      <tr><td><code>test_proxy_protocol.py</code></td><td>31</td><td>Protocol guard, content-type, float preservation, KB staleness, oracle resources</td></tr>
       <tr><td><code>test_router.py</code></td><td>20</td><td>11-type classification + latency</td></tr>
       <tr><td><code>test_oracle.py</code></td><td>10</td><td>Oracle seeding, lookup, threshold, latency</td></tr>
       <tr><td><code>test_handles.py</code></td><td>12</td><td>Handle store, retrieval, token reduction</td></tr>
     </tbody>
   </table>
+</section>
+
+<!-- ─────────────────────────────────────── V3 HARDENING -->
+<section class="section" id="hardening">
+  <h2>v3: Hardening (2026-05-30)</h2>
+
+  <p>Six safety features added to prevent silent failures in the proxy pipeline.</p>
+
+  <table>
+    <thead>
+      <tr><th>Feature</th><th>What it protects against</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Float preservation assert</td><td>Compression corrupting a numerical result (e.g. <code>0.0847</code> → <code>0.847</code>)</td></tr>
+      <tr><td>Protocol version guard</td><td>Upstream server upgrading to incompatible MCP version silently</td></tr>
+      <tr><td>Startup self-test (<code>selftest.py</code>)</td><td>Compressor breaking after code changes without anyone noticing</td></tr>
+      <tr><td>Path auto-detection in <code>install.sh</code></td><td>Silent misconfiguration on new machines or after MATLAB upgrades</td></tr>
+      <tr><td>Session-end Stop hook</td><td>KB fossilizing because <code>auto_learn.py</code> was never run manually</td></tr>
+      <tr><td>Oracle MCP resource endpoint</td><td>Oracle being write-only — Claude re-deriving known fixes from scratch</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Startup self-test</h3>
+  <p>Run <code>python3 selftest.py</code> to verify the compression pipeline at any time. Three known-output checks are executed; if any fail the script exits with code 1 and prints diagnostics. The same checks run automatically when the proxy starts.</p>
+  <pre><code>python3 selftest.py
+# selftest PASSED (3/3)</code></pre>
+
+  <h3>Oracle MCP resource endpoint</h3>
+  <p>The proxy exposes the error oracle as MCP resources. Claude can query the KB mid-session using <code>resources/read</code> — no inline injection needed:</p>
+  <pre><code>oracle://errors/recent                    — last 20 known error→fix pairs
+oracle://errors/query/&lt;url-encoded-text&gt;  — nearest-match lookup by error text</code></pre>
+  <p>The proxy intercepts these <code>resources/read</code> requests and answers them locally without forwarding to the upstream MCP server. Claude sees these in the <code>resources/list</code> response automatically.</p>
+
+  <h3>Float preservation assert</h3>
+  <p>After each compression step, the proxy verifies that every floating-point value present in the original response is still present in the compressed output. If a compressed float value is missing (e.g. <code>0.0847</code> was eaten to <code>0.847</code> by a leading-zero-stripping rule), the proxy falls back to the uncompressed output and logs a <code>WARNING</code>. Engineering results are never silently mangled.</p>
+
+  <h3>Protocol version guard</h3>
+  <p>The proxy checks the MCP protocol version on every <code>initialize</code> response. If the upstream server reports a version beyond the tested <code>0.x</code> range, a warning is logged. Non-text content types (image, audio, chunk) are passed through unchanged with an explicit debug log — previously they were silently forwarded without any indication.</p>
 </section>
 
 </main>

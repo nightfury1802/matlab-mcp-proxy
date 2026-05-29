@@ -170,7 +170,26 @@ Covers: non-finite derivatives · algebraic loops · variable init conflicts · 
 python3 tests/pmsm_foc/seed_oracle.py   # reload included seeds if needed
 ```
 
+**Query the oracle via MCP resources:** Claude can look up fixes mid-session without inline hints by reading MCP resources directly:
+- `oracle://errors/recent` — lists the last 20 known error→fix pairs
+- `oracle://errors/query/<url-encoded-error-text>` — returns the nearest-match fix with similarity score
+
 To see the full oracle reference: **[`docs/index.html`](docs/index.html)**
+
+---
+
+## Hardening (v3, 2026-05-30)
+
+Six safety features added to prevent silent failures:
+
+| Feature | What it protects against |
+|---|---|
+| Float preservation assert | Compression corrupting a numerical result (e.g. `0.0847` → `0.847`) |
+| Protocol version guard | Upstream server upgrading to incompatible MCP version silently |
+| Startup self-test (`selftest.py`) | Compressor breaking after code changes without anyone noticing |
+| Path auto-detection in `install.sh` | Silent misconfiguration on new machines or after MATLAB upgrades |
+| Session-end Stop hook | KB fossilizing because `auto_learn.py` was never run manually |
+| Oracle MCP resource endpoint | Oracle being write-only — Claude re-deriving known fixes from scratch |
 
 ---
 
@@ -204,6 +223,8 @@ bash install.sh
 ```
 
 `install.sh` patches `~/.claude.json` to wrap both `matlab` and `simulink` servers through the proxy. A backup is created at `~/.claude.json.bak`.
+
+`install.sh` auto-detects the upstream binary (`matlab-mcp-core-server`), MATLAB root, toolkit path, and workdir — no hardcoded paths. All four can be overridden via env vars (`UPSTREAM=`, `MATLAB_ROOT=`, etc.).
 
 ```bash
 bash install.sh --bypass     # proxy active, compression disabled (for debugging)
@@ -273,7 +294,7 @@ Previously, `--matlab-session-mode=existing` polled for 30 seconds and expired b
 # Unit tests — no MATLAB needed, run in <30s
 pytest tests/test_compressor.py tests/test_proxy_protocol.py \
        tests/test_router.py tests/test_oracle.py tests/test_handles.py -v
-# 79 tests
+# 112 passed
 
 # End-to-end latency benchmark
 python3 tests/benchmark.py
@@ -305,6 +326,7 @@ Use `bash install.sh --bypass` to keep the proxy running but skip all compressio
 
 ```
 proxy.py           — MCP stdio proxy (asyncio, stdlib only)
+selftest.py        — startup compression self-test (3 checks, exits 1 if broken)
 compressor.py      — 14 compression rules
 router.py          — semantic mode router, 11 output types, HTML stripping
 kb/
@@ -315,9 +337,10 @@ kb/
   learn.py         — Manual CLI: python3 kb/learn.py "error" "fix"
 kb_store/          — persisted oracle vectors + sim handles (20 seeds)
 install.sh         — patches ~/.claude.json for matlab + simulink
+pyproject.toml     — package metadata, entry-point, optional deps
 tests/
-  test_compressor.py       — 27 rules tests
-  test_proxy_protocol.py   — 10 protocol tests
+  test_compressor.py       — 39 rules tests
+  test_proxy_protocol.py   — 31 protocol tests
   test_router.py           — 20 classification + timing tests
   test_oracle.py           — 10 oracle + latency tests
   test_handles.py          — 12 handle + reduction tests
