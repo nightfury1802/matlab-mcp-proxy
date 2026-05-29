@@ -18,6 +18,44 @@ import os as _os
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from compressor import compress
+import re as _re
+
+_RESULT_FLOAT_RE = _re.compile(
+    r'(?:=\s*|:\s*)(-?\d*\.\d+(?:[eE][+-]?\d+)?|-?\d+\.\d*(?:[eE][+-]?\d+)?)',
+    _re.MULTILINE
+)
+
+def _extract_result_floats(text: str) -> list:
+    """Extract floats that appear after = or : (result-context values only)."""
+    return _RESULT_FLOAT_RE.findall(text)
+
+def _floats_preserved(original: str, compressed: str):
+    """Return None if all floats are preserved, or the offending float string if corruption detected.
+
+    Catches value corruption (0.0847 -> 0.847) while allowing deliberate removal.
+    Every value present in compressed must have existed in original.
+    """
+    comp_floats = _extract_result_floats(compressed)
+    if not comp_floats:
+        return None
+    orig_floats = _extract_result_floats(original)
+    orig_vals = []
+    for f in orig_floats:
+        try:
+            orig_vals.append(float(f))
+        except ValueError:
+            pass
+    for cf in comp_floats:
+        if cf in original:
+            continue  # exact string match — fast path
+        try:
+            cv = float(cf)
+        except ValueError:
+            continue
+        tol = max(abs(cv) * 1e-9, 1e-15)
+        if not any(abs(ov - cv) <= tol for ov in orig_vals):
+            return cf  # return the offending value
+    return None
 
 log = logging.getLogger("matlab-proxy")
 
@@ -61,12 +99,16 @@ def _log_unseen_error(error_text: str) -> None:
 
 # ── compression ──────────────────────────────────────────────────────────────
 
+from router import route, OutputType as _OutputType
+# Module-level import: startup failure is intentional — broken router crashes the proxy loudly.
+# The startup self-test (selftest.py, Task 3) is the safety net that catches this first.
+
+
 def _compress_response(msg: dict, bypass: bool) -> dict:
     """Compress text in tool_result messages. Requests pass through unchanged."""
     if bypass:
         return msg
     try:
-        from router import route, OutputType
         content = msg.get("result", {}).get("content", [])
         if not isinstance(content, list):
             return msg
@@ -75,7 +117,7 @@ def _compress_response(msg: dict, bypass: bool) -> dict:
                 original = item["text"]
                 compressed, otype = route(original)
                 # Append oracle hint for errors/warnings
-                if otype in (OutputType.ERROR, OutputType.WARNING):
+                if otype in (_OutputType.ERROR, _OutputType.WARNING):
                     oracle = _get_oracle()
                     hint = oracle.format_hint(original)
                     if hint:
@@ -83,14 +125,22 @@ def _compress_response(msg: dict, bypass: bool) -> dict:
                     else:
                         # No match — log for auto-learning after fix is found
                         _log_unseen_error(original)
-                elif otype == OutputType.SIM_RESULT and len(original) > 300:
+                elif otype == _OutputType.SIM_RESULT and len(original) > 300:
                     hs = _get_handle_store()
                     handle_id, summary = hs.store(original)
                     if handle_id:
                         compressed = hs.format_for_context(handle_id, summary)
                 if compressed != original:
-                    pct = (1 - len(compressed) / len(original)) * 100
-                    log.debug(f"Compressed {len(original)}→{len(compressed)} chars ({pct:.0f}%)")
+                    corrupted_float = _floats_preserved(original, compressed)
+                    if corrupted_float is not None:
+                        log.warning(
+                            f"Float integrity check failed — value {corrupted_float!r} in compressed "
+                            f"not found in original ({len(original)} chars). Check compressor rules."
+                        )
+                        compressed = original
+                    else:
+                        pct = (1 - len(compressed) / len(original)) * 100
+                        log.debug(f"Compressed {len(original)}→{len(compressed)} chars ({pct:.0f}%)")
                 item["text"] = compressed
     except (KeyError, TypeError, AttributeError):
         pass

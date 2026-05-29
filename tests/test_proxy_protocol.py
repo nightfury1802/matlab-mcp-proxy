@@ -95,3 +95,35 @@ class TestCompressResponse:
         items = out["result"]["content"]
         assert items[0]["text"].startswith("whos:")
         assert items[1]["text"].startswith("whos:")
+
+
+class TestFloatPreservation:
+    def test_fallback_when_leading_zero_eaten(self):
+        """Regression: compressor must not eat leading zeros from result floats."""
+        from proxy import _floats_preserved
+        assert _floats_preserved("lambda_ds =\n\n   0.0847\n", "lambda_ds =\n\n   0.847\n") is not None
+
+    def test_pass_when_floats_unchanged(self):
+        from proxy import _floats_preserved
+        assert _floats_preserved("ans =\n\n   107.6300\n", "ans =\n\n   107.6300\n") is None
+
+    def test_pass_when_floats_legitimately_removed(self):
+        """Deliberate removal (whos table compression) must not trigger fallback."""
+        from proxy import _floats_preserved
+        original = (
+            "  Name         Size    Bytes  Class\n"
+            "  omega_r      1x1        8  double\n"
+            "  lambda_ds    1x1        8  double\n"
+            "\nFinal torque = 107.63 Nm\n"
+        )
+        compressed = "whos: omega_r[1x1,dbl] lambda_ds[1x1,dbl]\nFinal torque = 107.63 Nm\n"
+        assert _floats_preserved(original, compressed) is None
+
+    def test_compress_response_falls_back_on_corrupted_float(self, monkeypatch):
+        """_compress_response must return original text when float integrity check fails."""
+        import proxy as px
+        from router import OutputType
+        monkeypatch.setattr("proxy.route", lambda text: ("corrupted = 0.847\n", OutputType.SIM_RESULT))
+        msg = {"id": "1", "result": {"content": [{"type": "text", "text": "actual = 0.0847\n"}]}}
+        out = px._compress_response(msg, bypass=False)
+        assert out["result"]["content"][0]["text"] == "actual = 0.0847\n"
