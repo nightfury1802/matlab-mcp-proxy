@@ -190,7 +190,7 @@ Run `python3 tests/benchmark.py` for the full breakdown.
 
 ### Requirements
 - Python 3.9+
-- `matlab-mcp-core-server` ([matlab/matlab-mcp-core-server](https://github.com/matlab/matlab-mcp-core-server))
+- `matlab-mcp-core-server` v0.10.0+ ([matlab/matlab-mcp-core-server](https://github.com/matlab/matlab-mcp-core-server))
 - Simulink Agentic Toolkit — optional (for `model_edit`, `model_overview`)
 - `pip install sentence-transformers` — optional, needed for oracle + handles only
 
@@ -231,8 +231,7 @@ After running `install.sh`, `~/.claude.json` looks like this:
         "/path/to/matlab-mcp-proxy/proxy.py",
         "--upstream", "/path/to/matlab-mcp-core-server",
         "--initial-working-folder", "/your/work/folder",
-        "--matlab-root", "/Applications/MATLAB_R2025a.app",
-        "--initialize-matlab-on-startup=true"
+        "--matlab-root", "/Applications/MATLAB_R2025a.app"
       ],
       "env": {}, "type": "stdio"
     },
@@ -241,7 +240,6 @@ After running `install.sh`, `~/.claude.json` looks like this:
       "args": [
         "/path/to/matlab-mcp-proxy/proxy.py",
         "--upstream", "/path/to/matlab-mcp-core-server",
-        "--matlab-session-mode=existing",
         "--extension-file=/path/to/simulink-agentic-toolkit/tools/tools.json"
       ],
       "env": {}, "type": "stdio"
@@ -255,13 +253,16 @@ After running `install.sh`, `~/.claude.json` looks like this:
 
 ---
 
-## The simulink session attach problem
+## The simulink session attach problem (resolved in v0.10.0)
 
-`--matlab-session-mode=existing` polls for a running MATLAB session for 30 seconds at startup. Without `--initialize-matlab-on-startup=true`, MATLAB starts lazily and the 30-second window expires before it's ready.
+Previously, `--matlab-session-mode=existing` polled for 30 seconds and expired before MATLAB was ready. The workaround was `--initialize-matlab-on-startup=true` on the `matlab` server to start MATLAB eagerly.
 
-Fix: `--initialize-matlab-on-startup=true` makes MATLAB start at Claude Code launch (~15–20s), within the discovery window.
+**Fixed in [matlab-mcp-core-server v0.10.0](https://github.com/matlab/matlab-mcp-core-server/releases/tag/v0.10.0)** via the new `auto` session mode (now the default). Both servers start or attach to MATLAB automatically — no workaround flags needed.
 
-Tracked upstream at [matlab/matlab-mcp-core-server#62](https://github.com/matlab/matlab-mcp-core-server/issues/62).
+> **macOS 26+ note:** The v0.10.0 binary requires an ad-hoc re-sign after download:
+> ```bash
+> codesign --force --deep --sign - /path/to/matlab-mcp-core-server
+> ```
 
 ---
 

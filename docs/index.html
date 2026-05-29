@@ -393,13 +393,11 @@ Claude Code  (~/.claude.json)
 ├── matlab proxy (python3 proxy.py)
 │       │  Content-Length framing (LSP-style JSON-RPC)
 │       ▼
-│   matlab-mcp-core-server --initialize-matlab-on-startup=true
-│       │  starts MATLAB eagerly at Claude launch (~15-20s)
+│   matlab-mcp-core-server (auto session mode — starts or attaches to MATLAB)
 │       ▼
 │   [ MATLAB R2025a  ·  evaluate_matlab_code  ·  run_matlab_file ]  shared session
 │       ▲
-│   matlab-mcp-core-server --matlab-session-mode=existing
-│       │  polls for session, attaches within 30s window
+│   matlab-mcp-core-server (auto session mode — attaches to same session)
 └── simulink proxy (python3 proxy.py)
         + model_edit / model_overview / model_read / model_test
 
@@ -550,8 +548,7 @@ python3 -m pytest tests/ -v</code></pre>
     "/Users/soorajkrishnan/simscape-agent/matlab-mcp-proxy/proxy.py",
     "--upstream", "/Users/soorajkrishnan/.local/bin/matlab-mcp-core-server",
     "--initial-working-folder", "/Users/soorajkrishnan/simscape-agent/work",
-    "--matlab-root", "/Applications/MATLAB_R2025a.app",
-    "--initialize-matlab-on-startup=true"
+    "--matlab-root", "/Applications/MATLAB_R2025a.app"
   ],
   "env": {}, "type": "stdio"
 },
@@ -560,7 +557,6 @@ python3 -m pytest tests/ -v</code></pre>
   "args": [
     "/Users/soorajkrishnan/simscape-agent/matlab-mcp-proxy/proxy.py",
     "--upstream", "/Users/soorajkrishnan/.local/bin/matlab-mcp-core-server",
-    "--matlab-session-mode=existing",
     "--extension-file=/Users/soorajkrishnan/simscape-agent/simulink-agentic-toolkit/tools/tools.json"
   ],
   "env": {}, "type": "stdio"
@@ -572,15 +568,13 @@ python3 -m pytest tests/ -v</code></pre>
   "command": "/Users/soorajkrishnan/.local/bin/matlab-mcp-core-server",
   "args": [
     "--initial-working-folder", "/Users/soorajkrishnan/simscape-agent/work",
-    "--matlab-root", "/Applications/MATLAB_R2025a.app",
-    "--initialize-matlab-on-startup=true"
+    "--matlab-root", "/Applications/MATLAB_R2025a.app"
   ],
   "env": {}, "type": "stdio"
 },
 "simulink": {
   "command": "/Users/soorajkrishnan/.local/bin/matlab-mcp-core-server",
   "args": [
-    "--matlab-session-mode=existing",
     "--extension-file=/Users/soorajkrishnan/simscape-agent/simulink-agentic-toolkit/tools/tools.json"
   ],
   "env": {}, "type": "stdio"
@@ -1335,40 +1329,40 @@ python3 -m pytest tests/ --cov=compressor --cov-report=term-missing</code></pre>
     These are completely separate files. Editing the wrong one has zero effect.
   </div>
 
-  <h3>Why matlab connects but simulink doesn't (without the fix)</h3>
-  <p>The two servers use fundamentally different session modes:</p>
+  <h3>Why matlab connects but simulink doesn't — historical context</h3>
+  <p>Prior to <code>matlab-mcp-core-server</code> v0.10.0, the two servers used different session modes:</p>
   <table>
-    <thead><tr><th>Server</th><th>Session mode</th><th>Behaviour</th></tr></thead>
+    <thead><tr><th>Server</th><th>Session mode (pre-v0.10.0)</th><th>Behaviour</th></tr></thead>
     <tbody>
       <tr>
         <td><code>matlab</code></td>
         <td><code>--matlab-session-mode=new</code> (default)</td>
-        <td><strong>Self-contained.</strong> Starts its own MATLAB when the first tool is called. Never fails to connect — it owns its session.</td>
+        <td><strong>Self-contained.</strong> Started its own MATLAB on first tool call.</td>
       </tr>
       <tr>
         <td><code>simulink</code></td>
         <td><code>--matlab-session-mode=existing</code></td>
-        <td><strong>Dependent.</strong> Polls for an already-running MATLAB session at startup for up to 30 seconds. If none found → permanent failure. Cannot start MATLAB itself.</td>
+        <td><strong>Dependent.</strong> Polled for a running MATLAB session for up to 30 seconds. If none found → permanent failure.</td>
       </tr>
     </tbody>
   </table>
-  <p>The <code>existing</code> mode is intentional: it makes the simulink server share the <em>same</em> MATLAB workspace as the matlab server — same variables, same open models, same path. If simulink started its own MATLAB, model edits and workspace state would be isolated.</p>
-  <p style="color:var(--warn)"><strong>The problem:</strong> the matlab server starts MATLAB <em>lazily</em> (only when a tool is called). By the time the first matlab tool is called, the simulink server's 30-second discovery window has already expired.</p>
-  <p style="color:var(--accent)"><strong>The fix:</strong> <code>--initialize-matlab-on-startup=true</code> on the matlab server forces MATLAB to start eagerly at Claude Code launch (~15-20s). The simulink server finds the session within the 30s window and connects reliably.</p>
+  <p>The workaround was <code>--initialize-matlab-on-startup=true</code> on the matlab server to force MATLAB to start eagerly so the simulink server could find it within the 30-second window.</p>
 
-  <h3>Open upstream issue</h3>
-  <p>This is a known gap in <code>matlab-mcp-core-server</code>. <a href="https://github.com/matlab/matlab-mcp-core-server/issues/62" style="color:var(--accent)">Issue #62</a> (filed Apr 2026, open): <em>"When using --matlab-session-mode=existing, MCP server should start a MATLAB instance if it doesn't find one."</em> Until MathWorks closes this, <code>--initialize-matlab-on-startup=true</code> is the correct workaround.</p>
+  <h3 style="color:var(--accent)">✅ Fixed in v0.10.0 — no workaround needed</h3>
+  <p><a href="https://github.com/matlab/matlab-mcp-core-server/releases/tag/v0.10.0" style="color:var(--accent)">matlab-mcp-core-server v0.10.0</a> (2026-05-27) resolves <a href="https://github.com/matlab/matlab-mcp-core-server/issues/62" style="color:var(--accent)">issue #62</a> via the new <code>auto</code> session mode (now the default). Both servers start or attach to MATLAB automatically — no <code>--initialize-matlab-on-startup</code> or <code>--matlab-session-mode=existing</code> flags needed.</p>
 
-  <h3>Startup sequence (current config)</h3>
+  <h3>⚠️ macOS 26 (Sequoia 2026) — codesign required</h3>
+  <p>The v0.10.0 binary crashes on macOS 26 with <code>SIGKILL (Code Signature Invalid)</code> unless ad-hoc re-signed after download:</p>
+  <pre><code>codesign --force --deep --sign - /path/to/matlab-mcp-core-server</code></pre>
+
+  <h3>Startup sequence (v0.10.0+)</h3>
   <pre style="font-size:0.82em;line-height:1.6">Claude Code launches
   │
-  ├─ matlab server starts
-  │    └─ MATLAB boots immediately (--initialize-matlab-on-startup=true) ~15-20s
-  │         └─ writes connector.securePort
+  ├─ matlab server starts  (auto mode)
+  │    └─ MATLAB starts or attaches automatically → CONNECTED ✅
   │
-  └─ simulink server starts (--matlab-session-mode=existing)
-       └─ polls connector.securePort every ~2s for 30s
-            └─ at ~15-20s: MATLAB responds → session shared → CONNECTED ✅</pre>
+  └─ simulink server starts  (auto mode)
+       └─ MATLAB already running → attaches to same session → CONNECTED ✅</pre>
 
   <h3>⚠️ Wire format: Content-Length framing</h3>
   <p><code>matlab-mcp-core-server</code> uses <strong>Content-Length framing</strong> (LSP/JSON-RPC style), not newline-delimited JSON. The proxy auto-detects this by checking for a <code>Content-Length:</code> header line, draining all headers, then reading exactly N bytes.</p>
@@ -1397,8 +1391,7 @@ d['mcpServers']['matlab'] = {
 }
 d['mcpServers']['simulink'] = {
     "command": core,
-    "args": ["--matlab-session-mode=existing",
-             f"--extension-file={toolkit}/tools/tools.json"],
+    "args": [f"--extension-file={toolkit}/tools/tools.json"],
     "env": {}, "type": "stdio"
 }
 json.dump(d, open('/Users/soorajkrishnan/.claude.json','w'), indent=2)
