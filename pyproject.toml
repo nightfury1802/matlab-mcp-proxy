@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "matlab-mcp-proxy"
+version = "1.1.0"
+description = "Transparent MCP stdio proxy with output compression for MATLAB MCP servers"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.optional-dependencies]
+kb = ["numpy>=1.24"]
+
+[project.scripts]
+matlab-mcp-proxy = "proxy:main"
+
+[tool.setuptools]
+py-modules = ["proxy", "compressor", "router", "selftest"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["kb*"]
