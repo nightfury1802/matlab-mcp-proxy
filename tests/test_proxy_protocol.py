@@ -127,3 +127,74 @@ class TestFloatPreservation:
         msg = {"id": "1", "result": {"content": [{"type": "text", "text": "actual = 0.0847\n"}]}}
         out = px._compress_response(msg, bypass=False)
         assert out["result"]["content"][0]["text"] == "actual = 0.0847\n"
+
+
+class TestProtocolVersionGuard:
+    def test_image_content_type_passes_through_unchanged(self):
+        """type:image must never be touched by compressor."""
+        msg = {
+            "id": "1",
+            "result": {
+                "content": [
+                    {"type": "image", "data": "iVBORw0KGgoAAAANSUhEUgA", "mimeType": "image/png"}
+                ]
+            }
+        }
+        out = _compress_response(msg, bypass=False)
+        assert out["result"]["content"][0]["data"] == "iVBORw0KGgoAAAANSUhEUgA"
+
+    def test_chunk_content_type_passes_through_unchanged(self):
+        msg = {
+            "id": "1",
+            "result": {
+                "content": [{"type": "chunk", "text": "partial output"}]
+            }
+        }
+        out = _compress_response(msg, bypass=False)
+        assert out["result"]["content"][0]["text"] == "partial output"
+
+    def test_mixed_content_only_compresses_text(self):
+        """When content has text + image, only text items should be compressed."""
+        whos = (
+            "  Name      Size    Bytes  Class\n"
+            "  x         1x1        8  double\n"
+        )
+        msg = {
+            "id": "1",
+            "result": {
+                "content": [
+                    {"type": "text", "text": whos},
+                    {"type": "image", "data": "abc123", "mimeType": "image/png"},
+                ]
+            }
+        }
+        out = _compress_response(msg, bypass=False)
+        assert out["result"]["content"][0]["text"].startswith("whos:")
+        assert out["result"]["content"][1]["data"] == "abc123"
+
+    def test_version_check_logs_warning_for_unknown_version(self, caplog):
+        import logging
+        import proxy as px
+        msg = {
+            "jsonrpc": "2.0", "id": 1,
+            "result": {
+                "protocolVersion": "3.0.0",
+                "serverInfo": {"name": "matlab-mcp-core-server", "version": "3.0.0"},
+            }
+        }
+        with caplog.at_level(logging.WARNING, logger="matlab-proxy"):
+            px._check_protocol_version(msg)
+        assert any("outside tested range" in r.message for r in caplog.records)
+
+    def test_version_check_silent_for_known_version(self, caplog):
+        import logging
+        import proxy as px
+        msg = {
+            "jsonrpc": "2.0", "id": 1,
+            "result": {
+                "serverInfo": {"name": "matlab-mcp-core-server", "version": "0.12.1"},
+            }
+        }
+        with caplog.at_level(logging.WARNING, logger="matlab-proxy"):
+            px._check_protocol_version(msg)
+        assert not any("outside tested range" in r.message for r in caplog.records)

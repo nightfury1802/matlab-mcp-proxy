@@ -59,6 +59,24 @@ def _floats_preserved(original: str, compressed: str):
 
 log = logging.getLogger("matlab-proxy")
 
+_TESTED_VERSION_PREFIXES = ("0.",)  # tested against 0.x; update when upgrading binary
+
+def _check_protocol_version(msg: dict) -> None:
+    """Warn if upstream MCP server reports a version outside the tested range."""
+    try:
+        server_info = msg.get("result", {}).get("serverInfo", {})
+        if not server_info:
+            return
+        version = server_info.get("version", "")
+        if version and not any(version.startswith(p) for p in _TESTED_VERSION_PREFIXES):
+            log.warning(
+                f"MCP server version '{version}' is outside tested range "
+                f"{_TESTED_VERSION_PREFIXES} — compression rules may be unsafe. "
+                f"Consider running with --bypass until rules are re-validated."
+            )
+    except Exception:
+        pass
+
 _oracle = None
 _handle_store = None
 
@@ -113,35 +131,39 @@ def _compress_response(msg: dict, bypass: bool) -> dict:
         if not isinstance(content, list):
             return msg
         for item in content:
-            if isinstance(item, dict) and item.get("type") == "text":
-                original = item["text"]
-                compressed, otype = route(original)
-                # Append oracle hint for errors/warnings
-                if otype in (_OutputType.ERROR, _OutputType.WARNING):
-                    oracle = _get_oracle()
-                    hint = oracle.format_hint(original)
-                    if hint:
-                        compressed = hint + "\n" + compressed
-                    else:
-                        # No match — log for auto-learning after fix is found
-                        _log_unseen_error(original)
-                elif otype == _OutputType.SIM_RESULT and len(original) > 300:
-                    hs = _get_handle_store()
-                    handle_id, summary = hs.store(original)
-                    if handle_id:
-                        compressed = hs.format_for_context(handle_id, summary)
-                if compressed != original:
-                    corrupted_float = _floats_preserved(original, compressed)
-                    if corrupted_float is not None:
-                        log.warning(
-                            f"Float integrity check failed — value {corrupted_float!r} in compressed "
-                            f"not found in original ({len(original)} chars). Check compressor rules."
-                        )
-                        compressed = original
-                    else:
-                        pct = (1 - len(compressed) / len(original)) * 100
-                        log.debug(f"Compressed {len(original)}→{len(compressed)} chars ({pct:.0f}%)")
-                item["text"] = compressed
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") != "text":
+                log.debug(f"Skipping non-text content item type={item.get('type')!r} — passing through unchanged")
+                continue
+            original = item["text"]
+            compressed, otype = route(original)
+            # Append oracle hint for errors/warnings
+            if otype in (_OutputType.ERROR, _OutputType.WARNING):
+                oracle = _get_oracle()
+                hint = oracle.format_hint(original)
+                if hint:
+                    compressed = hint + "\n" + compressed
+                else:
+                    # No match — log for auto-learning after fix is found
+                    _log_unseen_error(original)
+            elif otype == _OutputType.SIM_RESULT and len(original) > 300:
+                hs = _get_handle_store()
+                handle_id, summary = hs.store(original)
+                if handle_id:
+                    compressed = hs.format_for_context(handle_id, summary)
+            if compressed != original:
+                corrupted_float = _floats_preserved(original, compressed)
+                if corrupted_float is not None:
+                    log.warning(
+                        f"Float integrity check failed — value {corrupted_float!r} in compressed "
+                        f"not found in original ({len(original)} chars). Check compressor rules."
+                    )
+                    compressed = original
+                else:
+                    pct = (1 - len(compressed) / len(original)) * 100
+                    log.debug(f"Compressed {len(original)}→{len(compressed)} chars ({pct:.0f}%)")
+            item["text"] = compressed
     except (KeyError, TypeError, AttributeError):
         pass
     return msg
@@ -222,6 +244,7 @@ async def _forward_responses(proc_stdout: asyncio.StreamReader, bypass: bool):
             break
         try:
             msg         = json.loads(payload.decode())
+            _check_protocol_version(msg)          # warn if server version outside 0.x range
             msg         = _compress_response(msg, bypass)
             out_payload = json.dumps(msg, separators=(",", ":")).encode()
         except (json.JSONDecodeError, UnicodeDecodeError):
