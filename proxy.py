@@ -180,11 +180,6 @@ def _compress_response(msg: dict, bypass: bool) -> dict:
                 else:
                     pct = (1 - len(compressed) / len(original)) * 100
                     log.debug(f"Compressed {len(original)}→{len(compressed)} chars ({pct:.0f}%)")
-                    # Stats counter
-                    import os
-                    stats_file = os.path.expanduser("~/.hermes/logs/proxy_compression_stats.txt")
-                    with open(stats_file, "a") as sf:
-                        sf.write(f"{len(original)} {len(compressed)}\n")
 
             # Only augment with oracle/handle data after float check passes
             if otype in (_OutputType.ERROR, _OutputType.WARNING):
